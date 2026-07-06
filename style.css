@@ -684,7 +684,11 @@ body {
   color: var(--text-active);
   font-weight: bold;
   height: 22px;
-  padding: 0 10px;
+  width: 48px; /* Fixed width to prevent jumping and allow centering */
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 9px;
   cursor: pointer;
   transition: background-color 0.4s ease-out, border-color 0.4s ease-out, color 0.4s ease-out;
@@ -747,6 +751,38 @@ body {
   color: #ffffff;
   text-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
   box-shadow: 0 0 6px rgba(0, 85, 255, 0.5);
+}
+
+/* Quantize Button */
+.btn-quantize {
+  background-color: #1c1c1c;
+  border: 1px solid #3c3c3c;
+  color: #888;
+  font-weight: 900;
+  height: 22px;
+  width: 22px;
+  padding: 0;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Inter', sans-serif;
+}
+
+.btn-quantize:hover {
+  background-color: #2b2b2b;
+  color: #ccc;
+}
+
+.btn-quantize.active {
+  background-color: #cc00ff;
+  border-color: #e060ff;
+  color: #ffffff;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 6px rgba(204, 0, 255, 0.5);
 }
 
 .time-counter {
@@ -851,6 +887,11 @@ body {
 
 /* DISABLED EQ knob styling when stem is missing */
 .knob-cell.disabled {
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.disabled-control {
   opacity: 0.15;
   pointer-events: none;
 }
@@ -1882,12 +1923,28 @@ body {
   background-color: var(--bg-rack);
   border: 1px solid var(--border-light);
   padding: 4px;
+  height: 250px; /* Starting height, can be resized via JS */
+  flex: none; /* So it doesn't auto-expand unless resized */
 }
 
 .stacked-visualizer-area .visualizer-block {
-  height: 120px;
-  flex: none;
+  height: auto;
+  flex: 1; /* Automatically fill the available space of stacked area */
   border: 1px solid var(--border-light);
+}
+
+.stacked-resize-handle {
+  height: 8px;
+  margin-top: -4px;
+  margin-bottom: -4px;
+  z-index: 100;
+  cursor: ns-resize;
+  background-color: transparent;
+  width: 100%;
+}
+.stacked-resize-handle:hover,
+.stacked-resize-handle.active {
+  background-color: rgba(0, 255, 204, 0.4);
 }
 
 /* Layout Stacked overrides */
@@ -1954,18 +2011,18 @@ body {
 /* Sidebar mode handle positioning (Right edge resize width) */
 .exertia-sidebar .sidebar-resize-handle {
   top: 0;
-  right: 0;
+  right: -4px;
   bottom: 0;
-  width: 4px;
+  width: 8px;
   cursor: ew-resize;
 }
 
 /* Bottom mode handle positioning (Top edge resize height) */
 .exertia-workspace.explorer-bottom .exertia-sidebar .sidebar-resize-handle {
-  top: 0;
+  top: -4px;
   left: 0;
   right: 0;
-  height: 4px;
+  height: 8px;
   width: 100%;
   cursor: ns-resize;
 }
@@ -1983,7 +2040,7 @@ body {
   flex-direction: row;
   border-top: 1px solid var(--border-light);
   border-right: none;
-  overflow: hidden;
+  overflow: visible; /* Changed to visible so resize handle can overlap the gap */
   padding-bottom: 0; /* Clear bottom absolute padding */
 }
 

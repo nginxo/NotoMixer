@@ -64,10 +64,14 @@
         <div class="explorer-songs-group">
           <div class="sidebar-header">
             <h3 id="songs-header-title">AVAILABLE SONGS</h3>
-            <button class="bpm-filter-btn" id="btn-bpm-filter" title="Toggle BPM filter reference track">
-              <span class="bpm-filter-label">FILTER BPM:</span>
-              <span class="bpm-filter-track" id="bpm-filter-track-num">1</span>
-            </button>
+            <div class="sidebar-controls" style="display: flex; gap: 4px; align-items: center;">
+              <input type="text" id="song-search-input" placeholder="Search..." style="background: #1a1a1a; border: 1px solid var(--border-light); color: var(--text-light); padding: 2px 6px; border-radius: 3px; font-size: 10px; outline: none; width: 90px; height: 18px; box-sizing: border-box;">
+              <button id="btn-status-filter" style="background: #1a1a1a; border: 1px solid var(--border-light); border-radius: 3px; padding: 2px 6px; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; height: 18px; font-size: 10px; width: 28px; box-sizing: border-box;" title="Sort by compatibility">ALL</button>
+              <button class="bpm-filter-btn" id="btn-bpm-filter" title="Toggle BPM filter reference track">
+                <span class="bpm-filter-label">FILTER BPM:</span>
+                <span class="bpm-filter-track" id="bpm-filter-track-num">1</span>
+              </button>
+            </div>
           </div>
           
           <!-- Table Header for bottom panel layout (hidden in sidebar layout) -->
@@ -91,6 +95,7 @@
       <div class="exertia-main-area">
         <!-- Stacked Visualizer Area (Beat Match) -->
         <div id="stacked-visualizer-area" class="stacked-visualizer-area"></div>
+        <div class="stacked-resize-handle" id="stacked-resize-handle" style="display: none;"></div>
         
         <!-- Mixer Device Rack -->
         <main class="exertia-rack">
@@ -153,6 +158,7 @@
               </div>
               
               <button class="btn-beat-sync" id="btn-sync-1">SYNC</button>
+              <button class="btn-quantize" id="btn-quantize-1" title="Quantize: snap actions to beatgrid">Q</button>
               <div class="time-counter" id="time-display-1">
                 <span id="time-current-1">0:00</span>
                 <span class="time-divider">|</span>
@@ -475,6 +481,7 @@
               </div>
               
               <button class="btn-beat-sync" id="btn-sync-2">SYNC</button>
+              <button class="btn-quantize" id="btn-quantize-2" title="Quantize: snap actions to beatgrid">Q</button>
               <div class="time-counter" id="time-display-2">
                 <span id="time-current-2">0:00</span>
                 <span class="time-divider">|</span>
@@ -744,7 +751,7 @@
     </div>
 
     <!-- exertia Bottom Status & Console Bar -->
-    <footer class="exertia-console">
+    <footer class="exertia-console collapsed">
       <div class="console-tab-header" id="console-toggle">
         <span class="tab-indicator">▶</span>
         <h3>DEBUG INFO</h3>

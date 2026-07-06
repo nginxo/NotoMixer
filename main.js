@@ -14,8 +14,10 @@ let targetPortName = '';
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1920,
+    height: 1080,
+    minWidth: 1440,
+    minHeight: 900,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -26,6 +28,9 @@ function createWindow() {
     backgroundColor: '#0b0b0f',
     frame: true
   });
+  
+  // Maximize by default for the best DJ software experience
+  mainWindow.maximize();
 
   mainWindow.loadFile('index.html');
   // mainWindow.webContents.openDevTools();

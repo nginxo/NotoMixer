@@ -247,7 +247,9 @@ const tracks = {
     autoLoopBeats: 4,
     syncEnabled: false,
     visMode: 'waveform',
-    beatOffset: 0
+    beatOffset: 0,
+    quantizeEnabled: false,
+    _quantizePendingTimer: null
   },
   2: {
     stems: {
@@ -323,7 +325,9 @@ const tracks = {
     autoLoopBeats: 4,
     syncEnabled: false,
     visMode: 'waveform',
-    beatOffset: 0
+    beatOffset: 0,
+    quantizeEnabled: false,
+    _quantizePendingTimer: null
   }
 };
 
@@ -675,6 +679,7 @@ function toggleBeatSync(trackNum) {
     } else {
       btn.classList.remove('active');
       logConsole(`Sync: Disabled on Track ${trackNum}`, 'system');
+      setSpeed(trackNum, 100);
     }
   }
 }
@@ -742,6 +747,108 @@ function handleTrackProgress(trackNum, forceUpdate = false) {
   document.getElementById(`time-current-${trackNum}`).textContent = formatTime(current);
   
   syncStems(trackNum);
+}
+
+// -------------------------------------------------------------
+// Quantize Engine — Snap-to-beat helpers
+// -------------------------------------------------------------
+
+/**
+ * Returns the reference HTMLAudioElement for a given track (first valid stem).
+ */
+function getRefAudio(trackNum) {
+  const track = tracks[trackNum];
+  if (track.stems.main.exists) return track.stems.main.audio;
+  if (track.stems.vocals.exists) return track.stems.vocals.audio;
+  if (track.stems.inst.audios.length > 0) return track.stems.inst.audios[0].audio;
+  return null;
+}
+
+/**
+ * Returns the number of seconds per beat for a track.
+ */
+function getSecondsPerBeat(trackNum) {
+  const bpm = tracks[trackNum].bpmVal || 120;
+  return 60.0 / bpm;
+}
+
+/**
+ * Snaps a given time (seconds) to the nearest beat grid boundary.
+ * Uses the track's beatOffset for phase alignment.
+ * @param {number} trackNum
+ * @param {number} time — the raw time in seconds
+ * @param {string} mode — 'nearest' | 'next' | 'prev'
+ * @returns {number} the snapped time in seconds
+ */
+function snapTimeToBeat(trackNum, time, mode = 'nearest') {
+  const track = tracks[trackNum];
+  const spb = getSecondsPerBeat(trackNum);
+  const offset = track.beatOffset || 0;
+
+  // How many beats (fractional) since the beat offset?
+  const beatsElapsed = (time - offset) / spb;
+
+  let snappedBeat;
+  if (mode === 'next') {
+    snappedBeat = Math.ceil(beatsElapsed + 0.001); // tiny epsilon to avoid snapping to current if exactly on beat
+  } else if (mode === 'prev') {
+    snappedBeat = Math.floor(beatsElapsed);
+  } else {
+    snappedBeat = Math.round(beatsElapsed);
+  }
+
+  return Math.max(0, offset + snappedBeat * spb);
+}
+
+/**
+ * Returns the time in seconds until the next beat for a playing track.
+ * If the track is not playing, returns 0.
+ */
+function getTimeUntilNextBeat(trackNum) {
+  const refAudio = getRefAudio(trackNum);
+  if (!refAudio || !tracks[trackNum].isPlaying) return 0;
+
+  const currentTime = refAudio.currentTime;
+  const nextBeatTime = snapTimeToBeat(trackNum, currentTime, 'next');
+  return Math.max(0, (nextBeatTime - currentTime) / (tracks[trackNum].speedVal || 1.0));
+}
+
+/**
+ * Schedules an action to execute on the next beat if quantize is enabled.
+ * If quantize is off, the action runs immediately.
+ * @param {number} trackNum — the track whose beat grid to snap to
+ * @param {Function} action — the function to call when the beat arrives
+ * @param {string} label — description for logging
+ */
+function quantizeAction(trackNum, action, label = 'action') {
+  const track = tracks[trackNum];
+
+  // Cancel any already-pending quantize timer
+  if (track._quantizePendingTimer) {
+    clearTimeout(track._quantizePendingTimer);
+    track._quantizePendingTimer = null;
+  }
+
+  if (!track.quantizeEnabled || !track.isPlaying) {
+    // No quantize or track not playing → run immediately
+    action();
+    return;
+  }
+
+  const delayMs = getTimeUntilNextBeat(trackNum) * 1000;
+
+  if (delayMs < 15) {
+    // Already on or very close to a beat → run immediately
+    action();
+    return;
+  }
+
+  logConsole(`Quantize: "${label}" scheduled in ${delayMs.toFixed(0)}ms (Track ${trackNum})`, 'system');
+
+  track._quantizePendingTimer = setTimeout(() => {
+    track._quantizePendingTimer = null;
+    action();
+  }, delayMs);
 }
 
 function playTrack(trackNum) {
@@ -860,7 +967,14 @@ function togglePlayTrack(trackNum) {
   if (track.isPlaying) {
     pauseTrack(trackNum);
   } else {
-    playTrack(trackNum);
+    // Quantize: if Q is on and the OTHER track is playing, wait for next beat
+    const otherNum = (trackNum === 1) ? 2 : 1;
+    const otherTrack = tracks[otherNum];
+    if (track.quantizeEnabled && otherTrack.isPlaying) {
+      quantizeAction(otherNum, () => playTrack(trackNum), `Play Track ${trackNum}`);
+    } else {
+      playTrack(trackNum);
+    }
   }
 }
 
@@ -941,6 +1055,7 @@ function setEQ(trackNum, param, val) {
 }
 
 function setStemVolume(trackNum, stemKey, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   const normalized = value / 100;
@@ -962,6 +1077,7 @@ function setStemVolume(trackNum, stemKey, value) {
 }
 
 function setPitch(trackNum, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   
@@ -987,6 +1103,7 @@ function setPitch(trackNum, value) {
 }
 
 function setSpeed(trackNum, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   track.speedVal = value / 100; // factor, e.g. 0.5 to 2.0
@@ -1006,6 +1123,15 @@ function setSpeed(trackNum, value) {
   });
   
   updateKnobUI(trackNum, 'speed', value);
+  
+  if (track.bpmVal) {
+    const bpmInput = document.getElementById(`bpm-${trackNum}`);
+    if (bpmInput) {
+      // If speed is 100%, show base BPM exactly, otherwise calculate effective BPM
+      let effectiveBPM = (Math.abs(track.speedVal - 1.0) < 0.001) ? track.bpmVal : (track.bpmVal * track.speedVal);
+      bpmInput.value = Math.round(effectiveBPM);
+    }
+  }
 
   // Restart metronome if active to match the new speed
   if (track.metronomeOn) {
@@ -1027,6 +1153,7 @@ function setSpeed(trackNum, value) {
 }
 
 function setEcho(trackNum, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   track.echoVal = value; // 0 to 100
@@ -1045,6 +1172,7 @@ function setEcho(trackNum, value) {
 }
 
 function setFilter(trackNum, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   track.filterVal = value;
@@ -1078,6 +1206,7 @@ function setPan(trackNum, value) {
 }
 
 function setReverb(trackNum, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   track.reverbVal = value;
@@ -1088,6 +1217,7 @@ function setReverb(trackNum, value) {
 }
 
 function setEchoTime(trackNum, value) {
+  if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
   track.echoTimeVal = value;
@@ -1158,7 +1288,10 @@ function stopMetronome(trackNum) {
 function setBPM(trackNum, val) {
   const track = tracks[trackNum];
   val = Math.max(20, Math.min(300, val));
-  track.bpmVal = val;
+  
+  // The value is the effective BPM; set the base BPM accordingly
+  const speed = track.speedVal || 1.0;
+  track.bpmVal = val / speed;
   
   const input = document.getElementById(`bpm-${trackNum}`);
   if (input) input.value = val;
@@ -1251,34 +1384,128 @@ function seekTrack(trackNum, percent, forceNoAudioSeek = false) {
 function startSynthDemo(trackNum) {
   if (!audioCtx) return;
   const track = tracks[trackNum];
-  if (track.synthTimer) clearInterval(track.synthTimer);
+  if (track.synthTimer) {
+    clearInterval(track.synthTimer);
+    track.synthTimer = null;
+  }
   
   track.isSynth = true;
-  document.getElementById(`track-name-${trackNum}`).textContent = `SYNTH DEMO ${trackNum}`;
-  document.getElementById(`time-duration-${trackNum}`).textContent = 'LOOP';
+  document.getElementById(`track-name-${trackNum}`).textContent = `TEST AUDIO ${trackNum}`;
+  document.getElementById(`time-duration-${trackNum}`).textContent = '--:--';
   
-  // Set up dummy waveform for synth mode
-  track.staticWaveform = Array.from({length: 2000}, () => Math.random() * 0.5 + 0.25);
+  if (track.fallbackWaveform) {
+    track.staticWaveform = track.fallbackWaveform;
+  } else {
+    track.staticWaveform = Array.from({length: 2000}, () => Math.random() * 0.5 + 0.25);
+  }
   
   ['inst', 'main', 'vocals'].forEach(key => {
     const indicator = document.getElementById(`ind-${key}-${trackNum}`);
-    if (indicator) indicator.classList.add('present');
+    if (indicator) indicator.classList.remove('present');
     const cellId = key === 'main' ? 'main' : key === 'vocals' ? 'voc' : 'inst';
     const cell = document.getElementById(`cell-${cellId}-${trackNum}`);
-    if (cell) cell.classList.remove('disabled');
+    if (cell) cell.classList.add('disabled');
   });
 
-  let step = 0;
-  track.synthTimer = setInterval(() => {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    track.synthStep = step;
-    playSynthStep(trackNum, step);
-    step = (step + 1) % 16;
+  ['filter', 'pitch', 'speed', 'echo', 'reverb', 'echotime'].forEach(key => {
+    const cell = document.getElementById(`cell-${key}-${trackNum}`);
+    if (cell) cell.classList.add('disabled');
+  });
+
+  const bpmInput = document.getElementById(`bpm-${trackNum}`);
+  if (bpmInput && bpmInput.parentElement && bpmInput.parentElement.parentElement) {
+    bpmInput.parentElement.parentElement.classList.add('disabled-control');
+  }
+  
+  const bpmDiv = document.getElementById(`bpmdiv-${trackNum}`);
+  if (bpmDiv && bpmDiv.parentElement) {
+    bpmDiv.parentElement.classList.add('disabled-control');
+  }
+  
+  const metroBtn = document.getElementById(`btn-metro-${trackNum}`);
+  if (metroBtn && metroBtn.parentElement) {
+    metroBtn.parentElement.classList.add('disabled-control');
+  }
+
+  const syncBtn = document.getElementById(`btn-sync-${trackNum}`);
+  if (syncBtn) syncBtn.classList.add('disabled-control');
+  
+  const quantizeBtn = document.getElementById(`btn-quantize-${trackNum}`);
+  if (quantizeBtn) quantizeBtn.classList.add('disabled-control');
+
+  if (!track.fallbackAudio) {
+    track.fallbackAudio = new Audio('assets/test-audio.mp3');
+    track.fallbackAudio.loop = true;
+    const source = audioCtx.createMediaElementSource(track.fallbackAudio);
+    source.connect(track.gainNode);
     
-    const pct = ((step * 6.25) + 6.25) % 100;
-    updateProgressUI(trackNum, pct);
-    document.getElementById(`time-current-${trackNum}`).textContent = formatTime(step * 0.5);
-  }, 250);
+    // Analyze BPM, Offset, and Waveform for the test audio
+    fetch('assets/test-audio.mp3')
+      .then(res => res.arrayBuffer())
+      .then(ab => audioCtx.decodeAudioData(ab))
+      .then(buffer => {
+        const detectedBpm = estimateBPM(buffer);
+        const detectedOffset = estimateBeatOffset(buffer, detectedBpm);
+        
+        track.fallbackBpm = detectedBpm;
+        track.fallbackOffset = detectedOffset;
+        
+        if (track.isSynth) {
+          track.beatOffset = detectedOffset;
+          setBPM(trackNum, detectedBpm);
+          logConsole(`BPM: Analyzed test audio -> ${detectedBpm} BPM`, 'system');
+        }
+        
+        const numPeaks = 2000;
+        const rawData = buffer.getChannelData(0);
+        const L = rawData.length;
+        const SR = buffer.sampleRate;
+        const duration = buffer.duration;
+        const peaks = new Float32Array(numPeaks);
+        
+        for (let i = 0; i < numPeaks; i++) {
+          const startTime = (i / numPeaks) * duration;
+          const endTime = ((i + 1) / numPeaks) * duration;
+          const startIdx = Math.floor(startTime * SR);
+          const endIdx = Math.min(L, Math.floor(endTime * SR));
+          if (endIdx > startIdx) {
+            let sum = 0;
+            for (let j = startIdx; j < endIdx; j++) {
+              sum += Math.abs(rawData[j]);
+            }
+            peaks[i] = sum / (endIdx - startIdx);
+          }
+        }
+        const maxVal = Math.max(...peaks);
+        track.fallbackWaveform = Array.from(peaks).map(p => p / (maxVal || 1));
+        
+        if (track.isSynth) {
+          track.staticWaveform = track.fallbackWaveform;
+        }
+      })
+      .catch(e => console.error('Failed to analyze test audio:', e));
+    
+    track.fallbackAudio.addEventListener('timeupdate', () => {
+      if (!track.isSynth) return;
+      const dur = track.fallbackAudio.duration;
+      const cur = track.fallbackAudio.currentTime;
+      if (dur > 0) {
+        const pct = (cur / dur) * 100;
+        updateProgressUI(trackNum, pct);
+        document.getElementById(`time-current-${trackNum}`).textContent = formatTime(cur);
+        document.getElementById(`time-duration-${trackNum}`).textContent = formatTime(dur);
+      }
+    });
+  } else {
+    // If already analyzed, re-apply the cached BPM immediately
+    if (track.fallbackBpm) {
+      track.beatOffset = track.fallbackOffset;
+      setBPM(trackNum, track.fallbackBpm);
+    }
+  }
+  
+  track.fallbackAudio.playbackRate = track.speedVal || 1.0;
+  track.fallbackAudio.play().catch(e => logConsole(`Err: ${e.message}`, 'err'));
 }
 
 function stopSynthDemo(trackNum) {
@@ -1287,6 +1514,12 @@ function stopSynthDemo(trackNum) {
     clearInterval(track.synthTimer);
     track.synthTimer = null;
   }
+  
+  if (track.fallbackAudio) {
+    track.fallbackAudio.pause();
+    track.fallbackAudio.currentTime = 0;
+  }
+  
   track.isSynth = false;
   track.staticWaveform = null;
   track.synthStep = 0;
@@ -1368,6 +1601,79 @@ function setupUIListeners() {
     if (syncBtn) {
       syncBtn.addEventListener('click', () => {
         toggleBeatSync(trackNum);
+      });
+      
+      syncBtn.addEventListener('mouseenter', () => {
+        const otherNum = (trackNum === 1) ? 2 : 1;
+        const target = tracks[trackNum];
+        const source = tracks[otherNum];
+        
+        let targetSpeedPercentage = 100;
+        let targetBPM = target.bpmVal;
+
+        if (target.syncEnabled) {
+          // Preview turning OFF (resets to 100%)
+          targetSpeedPercentage = 100;
+          targetBPM = target.bpmVal;
+        } else if (target.bpmVal && source.bpmVal) {
+          // Preview turning ON (matches other track)
+          const sourceCurrentBpm = source.bpmVal * (source.speedVal || 1.0);
+          const newSpeedVal = sourceCurrentBpm / target.bpmVal;
+          targetSpeedPercentage = newSpeedVal * 100;
+          targetBPM = sourceCurrentBpm;
+        } else {
+          return;
+        }
+        
+        updateKnobUI(trackNum, 'speed', targetSpeedPercentage);
+        
+        const speedSpan = document.getElementById(`val-speed-${trackNum}`);
+        if (speedSpan) {
+          speedSpan.style.color = '#ffff00';
+          speedSpan.style.textShadow = '0 0 5px #ffff00';
+        }
+        
+        const bpmInput = document.getElementById(`bpm-${trackNum}`);
+        if (bpmInput) {
+          bpmInput.dataset.originalValue = bpmInput.value;
+          bpmInput.value = Math.round(targetBPM);
+          bpmInput.style.color = '#ffff00';
+          bpmInput.style.textShadow = '0 0 5px #ffff00';
+          bpmInput.style.borderColor = '#ffff00';
+        }
+      });
+      
+      syncBtn.addEventListener('mouseleave', () => {
+        const target = tracks[trackNum];
+        updateKnobUI(trackNum, 'speed', (target.speedVal || 1.0) * 100);
+        
+        const speedSpan = document.getElementById(`val-speed-${trackNum}`);
+        if (speedSpan) {
+          speedSpan.style.color = '';
+          speedSpan.style.textShadow = '';
+        }
+        
+        const bpmInput = document.getElementById(`bpm-${trackNum}`);
+        if (bpmInput && bpmInput.dataset.originalValue !== undefined) {
+          bpmInput.value = bpmInput.dataset.originalValue;
+          bpmInput.style.color = '';
+          bpmInput.style.textShadow = '';
+          bpmInput.style.borderColor = '';
+          delete bpmInput.dataset.originalValue;
+        }
+      });
+    }
+
+    // Quantize button
+    const quantizeBtn = document.getElementById(`btn-quantize-${trackNum}`);
+    if (quantizeBtn) {
+      quantizeBtn.addEventListener('click', () => {
+        tracks[trackNum].quantizeEnabled = !tracks[trackNum].quantizeEnabled;
+        if (tracks[trackNum].quantizeEnabled) {
+          quantizeBtn.classList.add('active');
+        } else {
+          quantizeBtn.classList.remove('active');
+        }
       });
     }
 
@@ -1825,39 +2131,7 @@ function setupUIListeners() {
     
     function triggerAutoLoop(tNum) {
       const track = tracks[tNum];
-      let refAudio = null;
-      if (track.stems.main.exists) refAudio = track.stems.main.audio;
-      else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
-      else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
-      
-      if (!refAudio || isNaN(refAudio.duration)) return;
-      
-      const bpm = track.bpmVal || 120;
-      const beatDuration = 60 / bpm;
-      const loopDuration = track.autoLoopBeats * beatDuration;
-      
-      if (track.loopStartTime === null) {
-        track.loopStartTime = refAudio.currentTime;
-      }
-      track.loopEndTime = track.loopStartTime + loopDuration;
-      
-      if (track.loopEndTime > refAudio.duration) {
-        track.loopEndTime = refAudio.duration;
-        track.loopStartTime = Math.max(0, track.loopEndTime - loopDuration);
-      }
-      
-      track.loopEnabled = true;
-      if (btnAutoLoop) {
-        btnAutoLoop.classList.add('active');
-        btnAutoLoop.textContent = `AUTO LOOP ON`;
-      }
-      if (btnLoopIn) btnLoopIn.classList.add('active');
-      if (btnLoopOut) btnLoopOut.classList.add('active');
-    }
-    
-    if (btnLoopIn) {
-      btnLoopIn.addEventListener('click', () => {
-        const track = tracks[trackNum];
+      quantizeAction(tNum, () => {
         let refAudio = null;
         if (track.stems.main.exists) refAudio = track.stems.main.audio;
         else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
@@ -1865,38 +2139,83 @@ function setupUIListeners() {
         
         if (!refAudio || isNaN(refAudio.duration)) return;
         
-        track.loopStartTime = refAudio.currentTime;
-        btnLoopIn.classList.add('active');
+        const bpm = track.bpmVal || 120;
+        const beatDuration = 60 / bpm;
+        const loopDuration = track.autoLoopBeats * beatDuration;
         
-        if (track.loopEndTime !== null && track.loopEndTime > track.loopStartTime) {
-          track.loopEnabled = true;
-          if (btnLoopOut) btnLoopOut.classList.add('active');
+        if (track.loopStartTime === null) {
+          track.loopStartTime = track.quantizeEnabled 
+            ? snapTimeToBeat(tNum, refAudio.currentTime, 'nearest') 
+            : refAudio.currentTime;
         }
+        track.loopEndTime = track.loopStartTime + loopDuration;
+        
+        if (track.loopEndTime > refAudio.duration) {
+          track.loopEndTime = refAudio.duration;
+          track.loopStartTime = Math.max(0, track.loopEndTime - loopDuration);
+        }
+        
+        track.loopEnabled = true;
+        if (btnAutoLoop) {
+          btnAutoLoop.classList.add('active');
+          btnAutoLoop.textContent = `AUTO LOOP ON`;
+        }
+        if (btnLoopIn) btnLoopIn.classList.add('active');
+        if (btnLoopOut) btnLoopOut.classList.add('active');
+      }, 'Auto Loop');
+    }
+    
+    if (btnLoopIn) {
+      btnLoopIn.addEventListener('click', () => {
+        quantizeAction(trackNum, () => {
+          const track = tracks[trackNum];
+          let refAudio = null;
+          if (track.stems.main.exists) refAudio = track.stems.main.audio;
+          else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
+          else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
+          
+          if (!refAudio || isNaN(refAudio.duration)) return;
+          
+          track.loopStartTime = track.quantizeEnabled 
+            ? snapTimeToBeat(trackNum, refAudio.currentTime, 'nearest') 
+            : refAudio.currentTime;
+          btnLoopIn.classList.add('active');
+          
+          if (track.loopEndTime !== null && track.loopEndTime > track.loopStartTime) {
+            track.loopEnabled = true;
+            if (btnLoopOut) btnLoopOut.classList.add('active');
+          }
+        }, 'Loop In');
       });
     }
     
     if (btnLoopOut) {
       btnLoopOut.addEventListener('click', () => {
-        const track = tracks[trackNum];
-        let refAudio = null;
-        if (track.stems.main.exists) refAudio = track.stems.main.audio;
-        else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
-        else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
-        
-        if (!refAudio || isNaN(refAudio.duration)) return;
-        
-        if (track.loopStartTime === null) {
-          track.loopStartTime = 0;
-          if (btnLoopIn) btnLoopIn.classList.add('active');
-        }
-        
-        track.loopEndTime = refAudio.currentTime;
-        if (track.loopEndTime <= track.loopStartTime) {
-          track.loopEndTime = track.loopStartTime + 1;
-        }
-        
-        track.loopEnabled = true;
-        btnLoopOut.classList.add('active');
+        quantizeAction(trackNum, () => {
+          const track = tracks[trackNum];
+          let refAudio = null;
+          if (track.stems.main.exists) refAudio = track.stems.main.audio;
+          else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
+          else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
+          
+          if (!refAudio || isNaN(refAudio.duration)) return;
+          
+          if (track.loopStartTime === null) {
+            track.loopStartTime = track.quantizeEnabled ? snapTimeToBeat(trackNum, 0, 'nearest') : 0;
+            if (btnLoopIn) btnLoopIn.classList.add('active');
+          }
+          
+          track.loopEndTime = track.quantizeEnabled
+            ? snapTimeToBeat(trackNum, refAudio.currentTime, 'nearest')
+            : refAudio.currentTime;
+            
+          if (track.loopEndTime <= track.loopStartTime) {
+            track.loopEndTime = track.loopStartTime + 1;
+          }
+          
+          track.loopEnabled = true;
+          btnLoopOut.classList.add('active');
+        }, 'Loop Out');
       });
     }
     
@@ -1976,6 +2295,42 @@ function setupUIListeners() {
       
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);
+    });
+  }
+
+  // Resizable Stacked Visualizer logic
+  const stackedHandle = document.getElementById('stacked-resize-handle');
+  const stackedArea = document.getElementById('stacked-visualizer-area');
+  if (stackedHandle && stackedArea) {
+    let isResizingStacked = false;
+    
+    stackedHandle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      isResizingStacked = true;
+      stackedHandle.classList.add('active');
+      
+      const startYStacked = e.clientY;
+      const startHeightStacked = stackedArea.clientHeight;
+      
+      function onMouseMoveStacked(moveEvent) {
+        if (!isResizingStacked) return;
+        const deltaY = moveEvent.clientY - startYStacked;
+        const newHeight = startHeightStacked + deltaY;
+        if (newHeight >= 100 && newHeight <= 800) {
+          stackedArea.style.height = newHeight + 'px';
+          localStorage.setItem('notoMixer_stackedHeight', newHeight);
+        }
+      }
+      
+      function onMouseUpStacked() {
+        isResizingStacked = false;
+        stackedHandle.classList.remove('active');
+        window.removeEventListener('mousemove', onMouseMoveStacked);
+        window.removeEventListener('mouseup', onMouseUpStacked);
+      }
+      
+      window.addEventListener('mousemove', onMouseMoveStacked);
+      window.addEventListener('mouseup', onMouseUpStacked);
     });
   }
 }
@@ -2343,6 +2698,33 @@ function loadDirectoryStems(trackNum, dirPath) {
       });
     }
 
+    // Re-enable effects that might have been disabled by the test track
+    ['filter', 'pitch', 'speed', 'echo', 'reverb', 'echotime'].forEach(key => {
+      const cell = document.getElementById(`cell-${key}-${trackNum}`);
+      if (cell) cell.classList.remove('disabled');
+    });
+
+    const bpmInput = document.getElementById(`bpm-${trackNum}`);
+    if (bpmInput && bpmInput.parentElement && bpmInput.parentElement.parentElement) {
+      bpmInput.parentElement.parentElement.classList.remove('disabled-control');
+    }
+    
+    const bpmDiv = document.getElementById(`bpmdiv-${trackNum}`);
+    if (bpmDiv && bpmDiv.parentElement) {
+      bpmDiv.parentElement.classList.remove('disabled-control');
+    }
+    
+    const metroBtn = document.getElementById(`btn-metro-${trackNum}`);
+    if (metroBtn && metroBtn.parentElement) {
+      metroBtn.parentElement.classList.remove('disabled-control');
+    }
+
+    const syncBtn = document.getElementById(`btn-sync-${trackNum}`);
+    if (syncBtn) syncBtn.classList.remove('disabled-control');
+    
+    const quantizeBtn = document.getElementById(`btn-quantize-${trackNum}`);
+    if (quantizeBtn) quantizeBtn.classList.remove('disabled-control');
+
     if (hasAtLeastOneFile) {
       logConsole(`Success: Song loaded on Channel ${trackNum} -> ${folderName}`, 'system');
     } else {
@@ -2360,6 +2742,59 @@ ipcRenderer.on('directory-selected', (event, { trackNum, dirPath }) => {
 
 // BPM Filter / Compatibility Indicator
 let bpmFilterTrack = 1; // 1 or 2, which track to compare against
+let currentStatusFilter = 'ALL'; // 'ALL', '✓', '⚠', '✗'
+let currentSearchQuery = '';
+
+function applySongListFilters() {
+  const songsList = document.getElementById('songs-list');
+  if (!songsList) return;
+  
+  const items = Array.from(songsList.querySelectorAll('li'));
+  // Don't sort the placeholder
+  if (items.length === 1 && items[0].classList.contains('song-list-placeholder')) return;
+
+  const query = currentSearchQuery.toLowerCase();
+  
+  // 1. Filter by search query
+  items.forEach(li => {
+    const folderName = li.dataset.folder || '';
+    if (folderName.toLowerCase().includes(query)) {
+      li.style.display = 'flex';
+    } else {
+      li.style.display = 'none';
+    }
+  });
+
+  // 2. Sort by status
+  if (currentStatusFilter !== 'ALL') {
+    items.sort((a, b) => {
+      const iconA = a.querySelector('.bpm-compat-icon');
+      const iconB = b.querySelector('.bpm-compat-icon');
+      
+      const charA = iconA ? iconA.textContent : '';
+      const charB = iconB ? iconB.textContent : '';
+      
+      const aMatches = (charA === currentStatusFilter) ? 1 : 0;
+      const bMatches = (charB === currentStatusFilter) ? 1 : 0;
+      
+      // Matchers bubble to the top
+      return bMatches - aMatches;
+    });
+    
+    // Re-append in new order
+    items.forEach(li => songsList.appendChild(li));
+  } else {
+    // Revert to alphabetical sort
+    items.sort((a, b) => {
+      const nameA = (a.dataset.folder || '').toLowerCase();
+      const nameB = (b.dataset.folder || '').toLowerCase();
+      if (nameA < nameB) return -1;
+      if (nameA > nameB) return 1;
+      return 0;
+    });
+    items.forEach(li => songsList.appendChild(li));
+  }
+}
 
 function updateBpmCompatIndicators() {
   const songsList = document.getElementById('songs-list');
@@ -2397,6 +2832,9 @@ function updateBpmCompatIndicators() {
       icon.textContent = '✗';
     }
   });
+  
+  // Re-apply filters whenever BPM compatibility updates
+  applySongListFilters();
 }
 
 function scanWorkingDirectory() {
@@ -2507,6 +2945,13 @@ function scanWorkingDirectory() {
           const folderName = li.dataset.folder;
           const fullPath = path.join(workingDir, folderName);
           loadPreviewSong(fullPath, folderName);
+        }
+      });
+
+      // Prevent middle click auto-scrolling cursor from appearing
+      li.addEventListener('mousedown', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
         }
       });
       
@@ -2754,6 +3199,9 @@ function showConnectionModal() {
   const modal = document.getElementById('connection-modal');
   if (modal) {
     modal.classList.add('show');
+    // Play the alert sound when the connection modal appears
+    const errorSound = new Audio('assets/error.mp3');
+    errorSound.play().catch(e => console.log('Could not play error sound:', e));
   }
 }
 
@@ -2932,6 +3380,7 @@ function applyLayoutMode(mode) {
   const block1 = document.getElementById('visualizer-block-1');
   const block2 = document.getElementById('visualizer-block-2');
   const stackedArea = document.getElementById('stacked-visualizer-area');
+  const stackedHandle = document.getElementById('stacked-resize-handle');
   
   if (mode === 'stacked') {
     container.classList.add('layout-stacked');
@@ -2939,11 +3388,21 @@ function applyLayoutMode(mode) {
       stackedArea.appendChild(block1);
       stackedArea.appendChild(block2);
       stackedArea.style.display = 'flex';
+      
+      const savedHeight = localStorage.getItem('notoMixer_stackedHeight');
+      if (savedHeight) {
+        stackedArea.style.height = savedHeight + 'px';
+      }
+      
+      if (stackedHandle) stackedHandle.style.display = 'block';
     }
   } else {
     container.classList.remove('layout-stacked');
     if (stackedArea) {
       stackedArea.style.display = 'none';
+    }
+    if (stackedHandle) {
+      stackedHandle.style.display = 'none';
     }
     const body1 = document.querySelector('#track-1 .track-body');
     const folder1 = body1 ? body1.querySelector('.folder-status-panel') : null;
@@ -3778,6 +4237,7 @@ function startVisualizers() {
         if (track.stems.main.exists) refAudio = track.stems.main.audio;
         else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
         else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
+        else if (track.isSynth && track.fallbackAudio) refAudio = track.fallbackAudio;
         
         const duration = (refAudio && refAudio.duration && !isNaN(refAudio.duration) && refAudio.duration > 0) ? refAudio.duration : 180;
 
@@ -3825,9 +4285,7 @@ function startVisualizers() {
             
             // Fill the played portion in gradient color
             let currentPct = 0;
-            if (track.isSynth) {
-              currentPct = (track.synthStep || 0) / 16;
-            } else if (refAudio) {
+            if (refAudio) {
               currentPct = refAudio.currentTime / duration;
             }
             const playedX = Math.max(0, Math.min(oW, currentPct * oW));
@@ -3993,9 +4451,7 @@ function startVisualizers() {
           // SCROLLING AUDIO WAVEFORM (Audacity Smooth Style)
           if (track.staticWaveform && track.staticWaveform.length > 0) {
             let currentPct = 0;
-            if (track.isSynth) {
-              currentPct = (track.synthStep || 0) / 16;
-            } else if (refAudio) {
+            if (refAudio) {
               currentPct = refAudio.currentTime / duration;
             } else {
               const fill = document.getElementById(`progress-fill-${trackNum}`);
@@ -4416,6 +4872,42 @@ window.addEventListener('DOMContentLoaded', () => {
       if (trackNumSpan) trackNumSpan.textContent = bpmFilterTrack;
       btnBpmFilter.dataset.track = String(bpmFilterTrack);
       updateBpmCompatIndicators();
+    });
+  }
+
+  // Search bar input
+  const songSearchInput = document.getElementById('song-search-input');
+  if (songSearchInput) {
+    songSearchInput.addEventListener('input', (e) => {
+      currentSearchQuery = e.target.value;
+      applySongListFilters();
+    });
+  }
+
+  // Status Filter button
+  const btnStatusFilter = document.getElementById('btn-status-filter');
+  if (btnStatusFilter) {
+    btnStatusFilter.addEventListener('click', () => {
+      // Cycle: ALL -> ✓ -> ⚠ -> ✗ -> ALL
+      if (currentStatusFilter === 'ALL') {
+        currentStatusFilter = '✓';
+        btnStatusFilter.style.color = '#00ffcc';
+        btnStatusFilter.style.borderColor = '#00ffcc';
+      } else if (currentStatusFilter === '✓') {
+        currentStatusFilter = '⚠';
+        btnStatusFilter.style.color = '#ffcc00';
+        btnStatusFilter.style.borderColor = '#ffcc00';
+      } else if (currentStatusFilter === '⚠') {
+        currentStatusFilter = '✗';
+        btnStatusFilter.style.color = '#ff3333';
+        btnStatusFilter.style.borderColor = '#ff3333';
+      } else {
+        currentStatusFilter = 'ALL';
+        btnStatusFilter.style.color = 'white';
+        btnStatusFilter.style.borderColor = 'var(--border-light)';
+      }
+      btnStatusFilter.textContent = currentStatusFilter;
+      applySongListFilters();
     });
   }
 
