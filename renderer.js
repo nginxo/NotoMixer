@@ -1434,13 +1434,13 @@ function startSynthDemo(trackNum) {
   if (quantizeBtn) quantizeBtn.classList.add('disabled-control');
 
   if (!track.fallbackAudio) {
-    track.fallbackAudio = new Audio('assets/test-audio.mp3');
+    track.fallbackAudio = new Audio('assets/audio/test-audio.mp3');
     track.fallbackAudio.loop = true;
     const source = audioCtx.createMediaElementSource(track.fallbackAudio);
     source.connect(track.gainNode);
     
     // Analyze BPM, Offset, and Waveform for the test audio
-    fetch('assets/test-audio.mp3')
+    fetch('assets/audio/test-audio.mp3')
       .then(res => res.arrayBuffer())
       .then(ab => audioCtx.decodeAudioData(ab))
       .then(buffer => {
@@ -3200,7 +3200,7 @@ function showConnectionModal() {
   if (modal) {
     modal.classList.add('show');
     // Play the alert sound when the connection modal appears
-    const errorSound = new Audio('assets/error.mp3');
+    const errorSound = new Audio('assets/audio/error.mp3');
     errorSound.play().catch(e => console.log('Could not play error sound:', e));
   }
 }
@@ -7415,3 +7415,8 @@ function setupPreviewCanvasScratching(canvas) {
     });
   });
 }
+
+// Signal the main process that the app is completely loaded and ready to be shown
+setTimeout(() => {
+  ipcRenderer.send('app-ready');
+}, 250);

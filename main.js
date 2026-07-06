@@ -12,8 +12,21 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 let mainWindow;
 let targetPortName = '';
 
+let splash;
+
 function createWindow() {
+  splash = new BrowserWindow({
+    width: 600,
+    height: 400,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    icon: path.join(__dirname, 'logo.png')
+  });
+  splash.loadFile('splash.html');
+
   mainWindow = new BrowserWindow({
+    show: false,
     width: 1920,
     height: 1080,
     minWidth: 1440,
@@ -26,11 +39,17 @@ function createWindow() {
     },
     title: "notoMixer Controller",
     backgroundColor: '#0b0b0f',
-    frame: true
+    frame: true,
+    icon: path.join(__dirname, 'logo.png')
   });
   
-  // Maximize by default for the best DJ software experience
-  mainWindow.maximize();
+  ipcMain.once('app-ready', () => {
+    if (splash && !splash.isDestroyed()) {
+      splash.destroy();
+    }
+    mainWindow.maximize();
+    mainWindow.show();
+  });
 
   mainWindow.loadFile('index.html');
   // mainWindow.webContents.openDevTools();
