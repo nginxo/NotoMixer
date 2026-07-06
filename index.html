@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>notoMixer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="exertia-container">
+    
+    <!-- Top Bar (exertia Menu Style) -->
+    <header class="exertia-header">
+      <div class="header-logo">
+        <span class="logo-symbol">
+          <span class="logo-bar">|</span>
+          <span class="logo-bar">|</span>
+          <span class="logo-bar">|</span>
+          <span class="logo-bar">|</span>
+          <span class="logo-bar">|</span>
+        </span>
+        <h2>notoMixer</h2>
+        <span class="header-sub">exertia stems mixer</span>
+      </div>
+      
+      <div class="header-controls">
+        <button id="btn-set-working-dir" class="exertia-btn-icon" title="Set Working Directory">
+          <svg viewBox="0 0 24 24" class="header-icon"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        </button>
+        <button id="btn-open-settings" class="exertia-btn-icon" title="Settings">
+          <svg viewBox="0 0 24 24" class="header-icon"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        </button>
+        <div class="port-group">
+          <label>COM PORT</label>
+          <select id="port-select" class="exertia-select">
+            <option value="">None</option>
+          </select>
+          <button id="btn-refresh-ports" class="exertia-btn-mini" title="Scan Ports">↻</button>
+        </div>
+        
+        <button id="btn-connect" class="exertia-btn">CONNECT</button>
+        
+        <div class="conn-led-wrapper">
+          <span class="conn-led disconnected" id="connection-led"></span>
+          <span class="conn-status-text" id="connection-status">DISCONNECTED</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace (Sidebar + Stems Rack) -->
+    <div class="exertia-workspace">
+      
+      <!-- Left Sidebar (Draggable Songs Explorer) -->
+      <aside class="exertia-sidebar">
+        <!-- Resize Handle -->
+        <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
+
+        <span id="working-dir-path" style="display: none;"></span>
+        
+        <!-- Songs Explorer Main Table Group -->
+        <div class="explorer-songs-group">
+          <div class="sidebar-header">
+            <h3 id="songs-header-title">AVAILABLE SONGS</h3>
+            <button class="bpm-filter-btn" id="btn-bpm-filter" title="Toggle BPM filter reference track">
+              <span class="bpm-filter-label">FILTER BPM:</span>
+              <span class="bpm-filter-track" id="bpm-filter-track-num">1</span>
+            </button>
+          </div>
+          
+          <!-- Table Header for bottom panel layout (hidden in sidebar layout) -->
+          <div class="explorer-table-header">
+            <div class="header-col-art">ART</div>
+            <div class="header-col-preview">PREVIEW</div>
+            <div class="header-col-title">TITLE</div>
+            <div class="header-col-meta">
+              <div class="header-col-bpm">BPM</div>
+              <div class="header-col-duration">DURATION</div>
+            </div>
+          </div>
+
+          <ul class="songs-list" id="songs-list">
+            <li class="song-list-placeholder">Select a working directory to view songs</li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <div class="exertia-main-area">
+        <!-- Stacked Visualizer Area (Beat Match) -->
+        <div id="stacked-visualizer-area" class="stacked-visualizer-area"></div>
+        
+        <!-- Mixer Device Rack -->
+        <main class="exertia-rack">
+        
+        <!-- CHANNEL 1 -->
+        <div class="track-strip" id="track-1" data-track="1">
+          <div class="track-header color-t1">
+            <span class="track-num">1</span>
+            <span class="track-name-text" id="track-name-1">TRACK 1 (DROP HERE)</span>
+          </div>
+
+          <div class="track-body">
+            
+            <!-- Folder Info & Stem Indicators -->
+            <div class="folder-status-panel">
+              <div class="dir-path-display" id="dir-path-1">No song loaded</div>
+              <div class="stems-led-grid">
+                <div class="stem-indicator" id="ind-inst-1">
+                  <span class="indicator-box"></span>
+                  <span class="indicator-label">INST</span>
+                </div>
+                <div class="stem-indicator" id="ind-main-1">
+                  <span class="indicator-box"></span>
+                  <span class="indicator-label">MAIN</span>
+                </div>
+                <div class="stem-indicator" id="ind-vocals-1">
+                  <span class="indicator-box"></span>
+                  <span class="indicator-label">VOCALS</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Waveform Visualizer -->
+            <div class="visualizer-block" id="visualizer-block-1">
+              <div class="visualizer-header">
+                <span class="visualizer-track-label color-t1-text">TRACK 1</span>
+                <button class="visualizer-mode-btn" id="btn-vis-spectrum-1" data-track="1" data-mode="spectrum">SPECTRUM</button>
+                <button class="visualizer-mode-btn active" id="btn-vis-waveform-1" data-track="1" data-mode="waveform">WAVEFORM</button>
+              </div>
+              <canvas class="overview-canvas" id="overview-canvas-1"></canvas>
+              <canvas class="waveform-canvas" id="canvas-1"></canvas>
+            </div>
+
+            <!-- Playback Strip -->
+            <div class="playback-strip">
+              <button class="btn-play-square" id="btn-play-1">PLAY</button>
+              <button class="btn-stop-square" id="btn-stop-1">STOP</button>
+              
+              <!-- Loop Controls inside Playback Strip -->
+              <div class="playback-loop-controls">
+                <button class="loop-strip-btn btn-auto-loop" id="btn-auto-loop-1">AUTO</button>
+                <div class="loop-strip-adjuster">
+                  <button class="loop-strip-arrow btn-loop-halve" id="btn-loop-halve-1">&lt;</button>
+                  <span class="loop-strip-display" id="loop-display-1">4</span>
+                  <button class="loop-strip-arrow btn-loop-double" id="btn-loop-double-1">&gt;</button>
+                </div>
+                <button class="loop-strip-btn btn-loop-in" id="btn-loop-in-1">IN</button>
+                <button class="loop-strip-btn btn-loop-out" id="btn-loop-out-1">OUT</button>
+                <button class="loop-strip-btn btn-loop-exit" id="btn-loop-exit-1">EXIT</button>
+              </div>
+              
+              <button class="btn-beat-sync" id="btn-sync-1">SYNC</button>
+              <div class="time-counter" id="time-display-1">
+                <span id="time-current-1">0:00</span>
+                <span class="time-divider">|</span>
+                <span id="time-duration-1">0:00</span>
+              </div>
+            </div>
+
+            <!-- Progress Seek Bar -->
+            <div class="progress-bar-container" id="prog-container-1">
+              <div class="progress-click-area" id="prog-hit-1">
+                <div class="progress-bar-fill" id="progress-fill-1">
+                  <div class="progress-handle"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="track-tab-header">
+              <button class="track-tab-btn active" data-tab="eq" data-track="1">EQ</button>
+              <button class="track-tab-btn" data-tab="buttons" data-track="1">BUTTONS</button>
+            </div>
+
+            <!-- Compact EQ & Volume Grid (All 6 Knobs together, Volume as Input box) -->
+            <div class="channel-controls-layout" id="channel-controls-1">
+              <div class="left-controls-pane">
+                <div class="knobs-grid track-tab-content active" id="track-content-eq-1">
+                <!-- Row 1: Bass, Lows, Treble -->
+                <div class="knob-cell">
+                  <label>BASS</label>
+                  <div class="exertia-knob-wrapper" id="knob-bass-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-bass-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-bass-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-bass-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="bass-1" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-bass-1">0.0 dB</span>
+                </div>
+
+                <div class="knob-cell">
+                  <label>LOWS</label>
+                  <div class="exertia-knob-wrapper" id="knob-low-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-low-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-low-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-low-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="low-1" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-low-1">0.0 dB</span>
+                </div>
+
+                <div class="knob-cell">
+                  <label>TREB</label>
+                  <div class="exertia-knob-wrapper" id="knob-treb-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-treb-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-treb-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-treb-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="treb-1" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-treb-1">0.0 dB</span>
+                </div>
+
+                <!-- Row 2: Stems Volumes (Inst, Vocals, Lyrics) -->
+                <div class="knob-cell" id="cell-inst-1">
+                  <label>EQ INST</label>
+                  <div class="exertia-knob-wrapper" id="knob-inst-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-inst-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-inst-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-inst-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="inst-1" min="0" max="100" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-inst-1">100%</span>
+                </div>
+
+
+
+                <div class="knob-cell" id="cell-voc-1">
+                  <label>EQ VOCALS</label>
+                  <div class="exertia-knob-wrapper" id="knob-voc-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-voc-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-voc-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-voc-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="voc-1" min="0" max="100" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-voc-1">100%</span>
+                </div>
+
+                <div class="knob-cell" id="cell-filter-1">
+                  <label>FILTER</label>
+                  <div class="exertia-knob-wrapper" id="knob-filter-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-filter-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-filter-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-filter-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="filter-1" min="0" max="100" value="50">
+                  </div>
+                  <span class="knob-val-display" id="val-filter-1">Byp</span>
+                </div>
+
+                <!-- Row 3: Pitch, Speed, Echo -->
+                <div class="knob-cell" id="cell-pitch-1">
+                  <label>PITCH</label>
+                  <div class="exertia-knob-wrapper" id="knob-pitch-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-pitch-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-pitch-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-pitch-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="pitch-1" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-pitch-1">0 st</span>
+                </div>
+
+                <div class="knob-cell" id="cell-speed-1">
+                  <label>SPEED</label>
+                  <div class="exertia-knob-wrapper" id="knob-speed-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-speed-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-speed-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-speed-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="speed-1" min="50" max="200" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-speed-1">100%</span>
+                </div>
+
+                <div class="knob-cell" id="cell-echo-1">
+                  <label>ECHO</label>
+                  <div class="exertia-knob-wrapper" id="knob-echo-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-echo-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-echo-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-echo-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="echo-1" min="0" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-echo-1">0%</span>
+                </div>
+
+                <!-- Row 4: Pan, Reverb, Echo Time -->
+                <div class="knob-cell" id="cell-pan-1">
+                  <label>PAN</label>
+                  <div class="exertia-knob-wrapper" id="knob-pan-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-pan-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-pan-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-pan-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="pan-1" min="-100" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-pan-1">C</span>
+                </div>
+
+                <div class="knob-cell" id="cell-reverb-1">
+                  <label>REVERB</label>
+                  <div class="exertia-knob-wrapper" id="knob-reverb-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-reverb-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-reverb-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-reverb-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="reverb-1" min="0" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-reverb-1">0%</span>
+                </div>
+
+                <div class="knob-cell" id="cell-echotime-1">
+                  <label>ECHO TIME</label>
+                  <div class="exertia-knob-wrapper" id="knob-echotime-1-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-echotime-1-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-echotime-1-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-echotime-1-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="echotime-1" min="100" max="1000" value="350">
+                  </div>
+                  <span class="knob-val-display" id="val-echotime-1">350 ms</span>
+                </div>
+              </div> <!-- ends .knobs-grid -->
+
+              <!-- Sound Buttons Grid -->
+                <div class="sound-buttons-grid track-tab-content" id="track-content-buttons-1">
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-0">
+                    <span class="sound-btn-num">1</span>
+                    <button class="sound-btn" id="sound-btn-1-0">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-1">
+                    <span class="sound-btn-num">2</span>
+                    <button class="sound-btn" id="sound-btn-1-1">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-2">
+                    <span class="sound-btn-num">3</span>
+                    <button class="sound-btn" id="sound-btn-1-2">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-3">
+                    <span class="sound-btn-num">4</span>
+                    <button class="sound-btn" id="sound-btn-1-3">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-4">
+                    <span class="sound-btn-num">5</span>
+                    <button class="sound-btn" id="sound-btn-1-4">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-5">
+                    <span class="sound-btn-num">6</span>
+                    <button class="sound-btn" id="sound-btn-1-5">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-6">
+                    <span class="sound-btn-num">7</span>
+                    <button class="sound-btn" id="sound-btn-1-6">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-1-7">
+                    <span class="sound-btn-num">8</span>
+                    <button class="sound-btn" id="sound-btn-1-7">DROP FILE</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Compact Volume Strip (Keyboard Input Field, No Graphic Fader) -->
+              <div class="volume-input-strip">
+                <!-- Section 1: Track Vol at the top -->
+                <div class="vol-control-section">
+                  <label>TRACK VOL</label>
+                  <div class="vol-input-wrapper">
+                    <input type="number" id="vol-1" class="exertia-vol-text-input" min="0" max="100" value="80">
+                    <span class="vol-percent-symbol">%</span>
+                  </div>
+                </div>
+
+                <!-- Section 2: BPM Control -->
+                <div class="bpm-control-section">
+                  <label>BPM</label>
+                  <div class="bpm-input-wrapper">
+                    <input type="number" id="bpm-1" class="exertia-bpm-text-input" min="20" max="300" value="120">
+                  </div>
+                </div>
+
+                <!-- Section 3: BPM Division -->
+                <div class="bpm-div-section">
+                  <label>BEAT</label>
+                  <select id="bpmdiv-1" class="exertia-select-mini">
+                    <option value="1/1">1/1</option>
+                    <option value="1/2">1/2</option>
+                    <option value="1/4">1/4</option>
+                  </select>
+                </div>
+
+                <!-- Section 4: Metronome Toggle -->
+                <div class="metro-control-section">
+                  <button id="btn-metro-1" class="exertia-btn-metro">METRO</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- CHANNEL 2 -->
+        <div class="track-strip" id="track-2" data-track="2">
+          <div class="track-header color-t2">
+            <span class="track-num">2</span>
+            <span class="track-name-text" id="track-name-2">TRACK 2 (DROP HERE)</span>
+          </div>
+
+          <div class="track-body">
+            
+            <!-- Folder Info & Stem Indicators -->
+            <div class="folder-status-panel">
+              <div class="dir-path-display" id="dir-path-2">No song loaded</div>
+              <div class="stems-led-grid">
+                <div class="stem-indicator" id="ind-inst-2">
+                  <span class="indicator-box"></span>
+                  <span class="indicator-label">INST</span>
+                </div>
+                <div class="stem-indicator" id="ind-main-2">
+                  <span class="indicator-box"></span>
+                  <span class="indicator-label">MAIN</span>
+                </div>
+                <div class="stem-indicator" id="ind-vocals-2">
+                  <span class="indicator-box"></span>
+                  <span class="indicator-label">VOCALS</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Waveform Visualizer -->
+            <div class="visualizer-block" id="visualizer-block-2">
+              <div class="visualizer-header">
+                <span class="visualizer-track-label color-t2-text">TRACK 2</span>
+                <button class="visualizer-mode-btn" id="btn-vis-spectrum-2" data-track="2" data-mode="spectrum">SPECTRUM</button>
+                <button class="visualizer-mode-btn active" id="btn-vis-waveform-2" data-track="2" data-mode="waveform">WAVEFORM</button>
+              </div>
+              <canvas class="overview-canvas" id="overview-canvas-2"></canvas>
+              <canvas class="waveform-canvas" id="canvas-2"></canvas>
+            </div>
+
+            <!-- Playback Strip -->
+            <div class="playback-strip">
+              <button class="btn-play-square" id="btn-play-2">PLAY</button>
+              <button class="btn-stop-square" id="btn-stop-2">STOP</button>
+              
+              <!-- Loop Controls inside Playback Strip -->
+              <div class="playback-loop-controls">
+                <button class="loop-strip-btn btn-auto-loop" id="btn-auto-loop-2">AUTO</button>
+                <div class="loop-strip-adjuster">
+                  <button class="loop-strip-arrow btn-loop-halve" id="btn-loop-halve-2">&lt;</button>
+                  <span class="loop-strip-display" id="loop-display-2">4</span>
+                  <button class="loop-strip-arrow btn-loop-double" id="btn-loop-double-2">&gt;</button>
+                </div>
+                <button class="loop-strip-btn btn-loop-in" id="btn-loop-in-2">IN</button>
+                <button class="loop-strip-btn btn-loop-out" id="btn-loop-out-2">OUT</button>
+                <button class="loop-strip-btn btn-loop-exit" id="btn-loop-exit-2">EXIT</button>
+              </div>
+              
+              <button class="btn-beat-sync" id="btn-sync-2">SYNC</button>
+              <div class="time-counter" id="time-display-2">
+                <span id="time-current-2">0:00</span>
+                <span class="time-divider">|</span>
+                <span id="time-duration-2">0:00</span>
+              </div>
+            </div>
+
+            <!-- Progress Seek Bar -->
+            <div class="progress-bar-container" id="prog-container-2">
+              <div class="progress-click-area" id="prog-hit-2">
+                <div class="progress-bar-fill" id="progress-fill-2">
+                  <div class="progress-handle"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="track-tab-header">
+              <button class="track-tab-btn active" data-tab="eq" data-track="2">EQ</button>
+              <button class="track-tab-btn" data-tab="buttons" data-track="2">BUTTONS</button>
+            </div>
+
+            <!-- Compact EQ & Volume Grid -->
+            <div class="channel-controls-layout" id="channel-controls-2">
+              <div class="left-controls-pane">
+                <div class="knobs-grid track-tab-content active" id="track-content-eq-2">
+                <!-- Row 1: Bass, Lows, Treble -->
+                <div class="knob-cell">
+                  <label>BASS</label>
+                  <div class="exertia-knob-wrapper" id="knob-bass-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-bass-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-bass-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-bass-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="bass-2" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-bass-2">0.0 dB</span>
+                </div>
+
+                <div class="knob-cell">
+                  <label>LOWS</label>
+                  <div class="exertia-knob-wrapper" id="knob-low-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-low-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-low-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-low-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="low-2" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-low-2">0.0 dB</span>
+                </div>
+
+                <div class="knob-cell">
+                  <label>TREB</label>
+                  <div class="exertia-knob-wrapper" id="knob-treb-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-treb-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-treb-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-treb-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="treb-2" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-treb-2">0.0 dB</span>
+                </div>
+
+                <!-- Row 2: Stems Volumes (Inst, Vocals, Lyrics) -->
+                <div class="knob-cell" id="cell-inst-2">
+                  <label>EQ INST</label>
+                  <div class="exertia-knob-wrapper" id="knob-inst-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-inst-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-inst-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-inst-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="inst-2" min="0" max="100" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-inst-2">100%</span>
+                </div>
+
+
+
+                <div class="knob-cell" id="cell-voc-2">
+                  <label>EQ VOCALS</label>
+                  <div class="exertia-knob-wrapper" id="knob-voc-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-voc-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-voc-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-voc-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="voc-2" min="0" max="100" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-voc-2">100%</span>
+                </div>
+
+                <div class="knob-cell" id="cell-filter-2">
+                  <label>FILTER</label>
+                  <div class="exertia-knob-wrapper" id="knob-filter-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-filter-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-filter-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-filter-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="filter-2" min="0" max="100" value="50">
+                  </div>
+                  <span class="knob-val-display" id="val-filter-2">Byp</span>
+                </div>
+
+                <!-- Row 3: Pitch, Speed, Echo -->
+                <div class="knob-cell" id="cell-pitch-2">
+                  <label>PITCH</label>
+                  <div class="exertia-knob-wrapper" id="knob-pitch-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-pitch-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-pitch-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-pitch-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="pitch-2" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-pitch-2">0 st</span>
+                </div>
+
+                <div class="knob-cell" id="cell-speed-2">
+                  <label>SPEED</label>
+                  <div class="exertia-knob-wrapper" id="knob-speed-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-speed-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-speed-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-speed-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="speed-2" min="50" max="200" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-speed-2">100%</span>
+                </div>
+
+                <div class="knob-cell" id="cell-echo-2">
+                  <label>ECHO</label>
+                  <div class="exertia-knob-wrapper" id="knob-echo-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-echo-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-echo-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-echo-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="echo-2" min="0" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-echo-2">0%</span>
+                </div>
+
+                <!-- Row 4: Pan, Reverb, Echo Time -->
+                <div class="knob-cell" id="cell-pan-2">
+                  <label>PAN</label>
+                  <div class="exertia-knob-wrapper" id="knob-pan-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-pan-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-pan-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-pan-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="pan-2" min="-100" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-pan-2">C</span>
+                </div>
+
+                <div class="knob-cell" id="cell-reverb-2">
+                  <label>REVERB</label>
+                  <div class="exertia-knob-wrapper" id="knob-reverb-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-reverb-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-reverb-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-reverb-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="reverb-2" min="0" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-reverb-2">0%</span>
+                </div>
+
+                <div class="knob-cell" id="cell-echotime-2">
+                  <label>ECHO TIME</label>
+                  <div class="exertia-knob-wrapper" id="knob-echotime-2-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-echotime-2-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-echotime-2-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-echotime-2-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="echotime-2" min="100" max="1000" value="350">
+                  </div>
+                  <span class="knob-val-display" id="val-echotime-2">350 ms</span>
+                </div>
+              </div> <!-- ends .knobs-grid -->
+
+              <!-- Sound Buttons Grid -->
+                <div class="sound-buttons-grid track-tab-content" id="track-content-buttons-2">
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-0">
+                    <span class="sound-btn-num">1</span>
+                    <button class="sound-btn" id="sound-btn-2-0">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-1">
+                    <span class="sound-btn-num">2</span>
+                    <button class="sound-btn" id="sound-btn-2-1">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-2">
+                    <span class="sound-btn-num">3</span>
+                    <button class="sound-btn" id="sound-btn-2-2">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-3">
+                    <span class="sound-btn-num">4</span>
+                    <button class="sound-btn" id="sound-btn-2-3">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-4">
+                    <span class="sound-btn-num">5</span>
+                    <button class="sound-btn" id="sound-btn-2-4">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-5">
+                    <span class="sound-btn-num">6</span>
+                    <button class="sound-btn" id="sound-btn-2-5">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-6">
+                    <span class="sound-btn-num">7</span>
+                    <button class="sound-btn" id="sound-btn-2-6">DROP FILE</button>
+                  </div>
+                  <div class="sound-btn-cell" id="sound-btn-cell-2-7">
+                    <span class="sound-btn-num">8</span>
+                    <button class="sound-btn" id="sound-btn-2-7">DROP FILE</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Compact Volume Strip (Keyboard Input Field, No Graphic Fader) -->
+              <div class="volume-input-strip">
+                <!-- Section 1: Track Vol at the top -->
+                <div class="vol-control-section">
+                  <label>TRACK VOL</label>
+                  <div class="vol-input-wrapper">
+                    <input type="number" id="vol-2" class="exertia-vol-text-input" min="0" max="100" value="80">
+                    <span class="vol-percent-symbol">%</span>
+                  </div>
+                </div>
+
+                <!-- Section 2: BPM Control -->
+                <div class="bpm-control-section">
+                  <label>BPM</label>
+                  <div class="bpm-input-wrapper">
+                    <input type="number" id="bpm-2" class="exertia-bpm-text-input" min="20" max="300" value="120">
+                  </div>
+                </div>
+
+                <!-- Section 3: BPM Division -->
+                <div class="bpm-div-section">
+                  <label>BEAT</label>
+                  <select id="bpmdiv-2" class="exertia-select-mini">
+                    <option value="1/1">1/1</option>
+                    <option value="1/2">1/2</option>
+                    <option value="1/4">1/4</option>
+                  </select>
+                </div>
+
+                <!-- Section 4: Metronome Toggle -->
+                <div class="metro-control-section">
+                  <button id="btn-metro-2" class="exertia-btn-metro">METRO</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </main>
+      </div>
+    </div>
+
+    <!-- exertia Bottom Status & Console Bar -->
+    <footer class="exertia-console">
+      <div class="console-tab-header" id="console-toggle">
+        <span class="tab-indicator">▶</span>
+        <h3>DEBUG INFO</h3>
+      </div>
+      <div class="console-body" id="console-body">
+        <div class="console-log" id="console-log">
+          <div class="log-line system">notoMixer exertia Rack loaded. Ready.</div>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Connection Warning Modal Overlay -->
+  <div id="connection-modal" class="exertia-modal-overlay">
+    <div class="exertia-modal-content">
+      <div class="modal-header">
+        <span class="modal-title">WARNING</span>
+      </div>
+      <div class="modal-body">
+        <p>notoMixer is not connected.</p>
+        <p class="modal-subtext">Make sure the hardware controller is connected via USB and the correct COM port is selected.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-btn-retry" class="exertia-btn-modal">Retry</button>
+        <button id="modal-btn-bypass" class="exertia-btn-modal btn-orange">Use app without notoMixer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal Overlay -->
+  <div id="settings-modal" class="exertia-modal-overlay">
+    <div class="exertia-modal-content settings-modal-content">
+      <div class="modal-header">
+        <span class="modal-title">SETTINGS</span>
+      </div>
+      <div class="modal-body settings-modal-body">
+        
+        <!-- Settings Left Sidebar Menu (Matches screenshot Option 1 list) -->
+        <div class="settings-sidebar">
+          <button class="settings-menu-item active" data-tab="general">General</button>
+          <button class="settings-menu-item" data-tab="eqs-sliders">EQs and Sliders</button>
+          <button class="settings-menu-item" data-tab="zoom">Zoom</button>
+          <button class="settings-menu-item" data-tab="info">Info</button>
+        </div>
+        
+        <!-- Settings Right Content Area -->
+        <div class="settings-content-area">
+          <!-- General Tab -->
+          <div class="settings-tab-content active" id="tab-general">
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-main-audio" class="settings-label">MAIN AUDIO OUTPUT</label>
+                </div>
+                <select id="setting-main-audio" class="exertia-select-mini" style="width: 100%; height: 26px; font-size: 11px;">
+                  <option value="default">Default</option>
+                </select>
+                <span class="settings-desc">Select the audio output device for Main Tracks.</span>
+              </div>
+            </div>
+            
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-preview-audio" class="settings-label">PREVIEW AUDIO OUTPUT</label>
+                </div>
+                <select id="setting-preview-audio" class="exertia-select-mini" style="width: 100%; height: 26px; font-size: 11px;">
+                  <option value="default">Default</option>
+                </select>
+                <span class="settings-desc">Select the audio output device for the Preview Window.</span>
+              </div>
+            </div>
+            
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-layout-mode" class="settings-label">WAVEFORM LAYOUT</label>
+                </div>
+                <select id="setting-layout-mode" class="exertia-select-mini" style="width: 100%; height: 26px; font-size: 11px;">
+                  <option value="default">Side-by-Side (Default)</option>
+                  <option value="stacked">Stacked Waveforms</option>
+                </select>
+                <span class="settings-desc">Choose between side-by-side or vertically stacked waveforms.</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-explorer-layout" class="settings-label">SONG EXPLORER LAYOUT</label>
+                </div>
+                <select id="setting-explorer-layout" class="exertia-select-mini" style="width: 100%; height: 26px; font-size: 11px;">
+                  <option value="sidebar">Left Sidebar (Default)</option>
+                  <option value="bottom">Bottom Panel</option>
+                </select>
+                <span class="settings-desc">Choose between a vertical left sidebar or a horizontal bottom explorer.</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- EQs & Sliders Tab -->
+          <div class="settings-tab-content" id="tab-eqs-sliders">
+            <div class="settings-card">
+              <div class="settings-row">
+                <label for="setting-snap-enable" class="settings-label">Enable Center Snap</label>
+                <input type="checkbox" id="setting-snap-enable" class="exertia-checkbox">
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-snap-threshold" class="settings-label">Snap Threshold Range</label>
+                  <span class="settings-value-display" id="snap-threshold-display">5%</span>
+                </div>
+                <input type="range" id="setting-snap-threshold" min="1" max="15" value="5" class="exertia-settings-slider">
+                <span class="settings-desc">Snaps knobs (EQ gains, Pan, Pitch, Filter, Speed) to their default center value when dragged close to it.</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Zoom Tab -->
+          <div class="settings-tab-content" id="tab-zoom">
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-zoom-text" class="settings-label">TEXT ZOOM</label>
+                  <span class="settings-value-display" id="zoom-text-display">100%</span>
+                </div>
+                <input type="range" id="setting-zoom-text" min="80" max="150" value="100" class="exertia-settings-slider">
+                <span class="settings-desc">Adjust the global text size of the application.</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-zoom-waveform" class="settings-label">WAVEFORM ZOOM</label>
+                  <span class="settings-value-display" id="zoom-waveform-display">100%</span>
+                </div>
+                <input type="range" id="setting-zoom-waveform" min="50" max="200" value="100" class="exertia-settings-slider">
+                <span class="settings-desc">Adjust the size of the mini waveforms in the songs list.</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-zoom-buttons" class="settings-label">BUTTON ZOOM</label>
+                  <span class="settings-value-display" id="zoom-buttons-display">100%</span>
+                </div>
+                <input type="range" id="setting-zoom-buttons" min="80" max="150" value="100" class="exertia-settings-slider">
+                <span class="settings-desc">Adjust the scale of the buttons across the controller.</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-zoom-cover" class="settings-label">COVER ART ZOOM</label>
+                  <span class="settings-value-display" id="zoom-cover-display">100%</span>
+                </div>
+                <input type="range" id="setting-zoom-cover" min="80" max="180" value="100" class="exertia-settings-slider">
+                <span class="settings-desc">Adjust the size of the cover art images in the songs list.</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Info Tab -->
+          <div class="settings-tab-content" id="tab-info">
+            <div class="settings-card">
+              <p class="tab-placeholder-text" style="margin: 0; line-height: 1.6;">notoMixer exertia Rack v1.0.0<br>Connected via Web Serial API.</p>
+            </div>
+          </div>
+        </div>
+        
+      </div>
+      <div class="modal-footer">
+        <button id="settings-btn-close" class="exertia-btn-modal">Close</button>
+        <button id="settings-btn-save" class="exertia-btn-modal btn-orange">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Draggable In-App Preview Window -->
+  <div id="preview-panel" class="in-app-window">
+    <!-- Resize Handles -->
+    <div class="resize-handle top"></div>
+    <div class="resize-handle bottom"></div>
+    <div class="resize-handle left"></div>
+    <div class="resize-handle right"></div>
+    <div class="resize-handle top-left"></div>
+    <div class="resize-handle top-right"></div>
+    <div class="resize-handle bottom-left"></div>
+    <div class="resize-handle bottom-right"></div>
+    
+    <div class="in-app-window-header">
+      <span class="in-app-window-title">PREVIEW: <span id="prev-panel-song-title">NONE</span></span>
+      <button id="preview-panel-close-btn" class="in-app-window-close">&times;</button>
+    </div>
+    <div class="in-app-window-body">
+      
+      <div class="track-strip" id="track-prev">
+        <div class="track-header color-prev">
+          <span class="track-num">PREVIEW</span>
+          <span class="track-name-text" id="prev-track-name">LOADING SONG...</span>
+        </div>
+
+        <div class="track-body">
+          
+          <!-- Folder Info & Stem Indicators -->
+          <div class="folder-status-panel">
+            <div class="dir-path-display" id="prev-dir-path">Loading path...</div>
+            <div class="stems-led-grid">
+              <div class="stem-indicator" id="prev-ind-inst">
+                <span class="indicator-box"></span>
+                <span class="indicator-label">INST</span>
+              </div>
+              <div class="stem-indicator" id="prev-ind-main">
+                <span class="indicator-box"></span>
+                <span class="indicator-label">MAIN</span>
+              </div>
+              <div class="stem-indicator" id="prev-ind-vocals">
+                <span class="indicator-box"></span>
+                <span class="indicator-label">VOCALS</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Waveform Visualizer -->
+          <div class="visualizer-block" id="prev-visualizer-block">
+            <div class="visualizer-header">
+              <span class="visualizer-track-label color-prev-text">PREVIEW</span>
+              <button class="visualizer-mode-btn" id="prev-btn-vis-spectrum" data-mode="spectrum">SPECTRUM</button>
+              <button class="visualizer-mode-btn active" id="prev-btn-vis-waveform" data-mode="waveform">WAVEFORM</button>
+            </div>
+            <canvas class="overview-canvas" id="prev-overview-canvas"></canvas>
+            <canvas class="waveform-canvas" id="prev-canvas"></canvas>
+          </div>
+
+          <!-- Playback Strip -->
+          <div class="playback-strip">
+            <button class="btn-play-square" id="prev-btn-play">PLAY</button>
+            <button class="btn-stop-square" id="prev-btn-stop">STOP</button>
+            
+            <!-- Loop Controls inside Playback Strip -->
+            <div class="playback-loop-controls">
+              <button class="loop-strip-btn btn-auto-loop" id="prev-btn-auto-loop">AUTO</button>
+              <div class="loop-strip-adjuster">
+                <button class="loop-strip-arrow btn-loop-halve" id="prev-btn-loop-halve">&lt;</button>
+                <span class="loop-strip-display" id="prev-loop-display">4</span>
+                <button class="loop-strip-arrow btn-loop-double" id="prev-btn-loop-double">&gt;</button>
+              </div>
+              <button class="loop-strip-btn btn-loop-in" id="prev-btn-loop-in">IN</button>
+              <button class="loop-strip-btn btn-loop-out" id="prev-btn-loop-out">OUT</button>
+              <button class="loop-strip-btn btn-loop-exit" id="prev-btn-loop-exit">EXIT</button>
+            </div>
+            
+            <div class="time-counter" id="prev-time-display">
+              <span id="prev-time-current">0:00</span>
+              <span class="time-divider">|</span>
+              <span id="prev-time-duration">0:00</span>
+            </div>
+          </div>
+
+          <!-- Progress Seek Bar -->
+          <div class="progress-bar-container" id="prev-prog-container">
+            <div class="progress-click-area" id="prev-prog-hit">
+              <div class="progress-bar-fill" id="prev-progress-fill">
+                <div class="progress-handle"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="track-tab-header">
+            <button class="track-tab-btn active" id="prev-tab-eq-btn" data-tab="eq">EQ</button>
+            <button class="track-tab-btn" id="prev-tab-buttons-btn" data-tab="buttons">BUTTONS</button>
+          </div>
+
+          <!-- Compact EQ & Volume Grid -->
+          <div class="channel-controls-layout" id="prev-channel-controls">
+            <div class="left-controls-pane">
+              <div class="knobs-grid track-tab-content active" id="prev-track-content-eq">
+                <!-- Row 1: Bass, Lows, Treble -->
+                <div class="knob-cell">
+                  <label>BASS</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-bass-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-bass-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-bass-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-bass-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-bass" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-bass">0.0 dB</span>
+                </div>
+
+                <div class="knob-cell">
+                  <label>LOWS</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-low-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-low-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-low-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-low-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-low" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-low">0.0 dB</span>
+                </div>
+
+                <div class="knob-cell">
+                  <label>TREB</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-treb-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-treb-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-treb-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-treb-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-treb" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-treb">0.0 dB</span>
+                </div>
+
+                <!-- Row 2: Stems Volumes (Inst, Vocals, Lyrics) -->
+                <div class="knob-cell" id="prev-cell-inst">
+                  <label>EQ INST</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-inst-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-inst-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-inst-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-inst-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-inst" min="0" max="100" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-inst">100%</span>
+                </div>
+
+                <div class="knob-cell" id="prev-cell-voc">
+                  <label>EQ VOCALS</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-voc-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-voc-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-voc-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-voc-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-voc" min="0" max="100" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-voc">100%</span>
+                </div>
+
+                <div class="knob-cell" id="prev-cell-filter">
+                  <label>FILTER</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-filter-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-filter-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-filter-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-filter-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-filter" min="0" max="100" value="50">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-filter">Byp</span>
+                </div>
+
+                <!-- Row 3: Pitch, Speed, Echo -->
+                <div class="knob-cell" id="prev-cell-pitch">
+                  <label>PITCH</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-pitch-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-pitch-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-pitch-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-pitch-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-pitch" min="-12" max="12" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-pitch">0 st</span>
+                </div>
+
+                <div class="knob-cell" id="prev-cell-speed">
+                  <label>SPEED</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-speed-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-speed-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-speed-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-speed-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-speed" min="50" max="200" value="100">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-speed">100%</span>
+                </div>
+
+                <div class="knob-cell" id="prev-cell-echo">
+                  <label>ECHO</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-echo-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-echo-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-echo-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-echo-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-echo" min="0" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-echo">0%</span>
+                </div>
+
+                <!-- Row 4: Pan, Reverb, Echo Time -->
+                <div class="knob-cell" id="prev-cell-pan">
+                  <label>PAN</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-pan-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-pan-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-pan-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-pan-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-pan" min="-100" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-pan">C</span>
+                </div>
+
+                <div class="knob-cell" id="prev-cell-reverb">
+                  <label>REVERB</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-reverb-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-reverb-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-reverb-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-reverb-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-reverb" min="0" max="100" value="0">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-reverb">0%</span>
+                </div>
+
+                <div class="knob-cell" id="prev-cell-echotime">
+                  <label>ECHO TIME</label>
+                  <div class="exertia-knob-wrapper" id="knob-prev-echotime-wrapper">
+                    <svg class="exertia-knob-svg" viewBox="0 0 40 40" id="knob-prev-echotime-svg">
+                      <circle cx="20" cy="20" r="16" class="knob-body-circle"/>
+                      <path class="knob-fill-arc" id="knob-prev-echotime-fill" d=""/>
+                      <line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line" id="knob-prev-echotime-pointer"/>
+                    </svg>
+                    <input type="range" class="hidden-range" id="prev-echotime" min="100" max="1000" value="350">
+                  </div>
+                  <span class="knob-val-display" id="val-prev-echotime">350 ms</span>
+                </div>
+              </div> <!-- ends .knobs-grid -->
+
+              <!-- Sound Buttons Grid -->
+              <div class="sound-buttons-grid track-tab-content" id="prev-track-content-buttons">
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-0">
+                  <span class="sound-btn-num">1</span>
+                  <button class="sound-btn" id="prev-sound-btn-0">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-1">
+                  <span class="sound-btn-num">2</span>
+                  <button class="sound-btn" id="prev-sound-btn-1">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-2">
+                  <span class="sound-btn-num">3</span>
+                  <button class="sound-btn" id="prev-sound-btn-2">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-3">
+                  <span class="sound-btn-num">4</span>
+                  <button class="sound-btn" id="prev-sound-btn-3">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-4">
+                  <span class="sound-btn-num">5</span>
+                  <button class="sound-btn" id="prev-sound-btn-4">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-5">
+                  <span class="sound-btn-num">6</span>
+                  <button class="sound-btn" id="prev-sound-btn-5">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-6">
+                  <span class="sound-btn-num">7</span>
+                  <button class="sound-btn" id="prev-sound-btn-6">DROP FILE</button>
+                </div>
+                <div class="sound-btn-cell" id="prev-sound-btn-cell-7">
+                  <span class="sound-btn-num">8</span>
+                  <button class="sound-btn" id="prev-sound-btn-7">DROP FILE</button>
+                </div>
+                </div>
+              </div>
+
+              <!-- Compact Volume Strip -->
+              <div class="volume-input-strip">
+                <div class="vol-control-section">
+                  <label>TRACK VOL</label>
+                  <div class="vol-input-wrapper">
+                    <input type="number" id="prev-vol" class="exertia-vol-text-input" min="0" max="100" value="80">
+                    <span class="vol-percent-symbol" id="prev-vol-percent-symbol">%</span>
+                  </div>
+                </div>
+
+                <div class="bpm-control-section">
+                  <label>BPM</label>
+                  <div class="bpm-input-wrapper">
+                    <input type="number" id="prev-bpm" class="exertia-bpm-text-input" min="20" max="300" value="120">
+                  </div>
+                </div>
+
+                <div class="bpm-div-section">
+                  <label>BEAT</label>
+                  <select id="prev-bpmdiv" class="exertia-select-mini">
+                    <option value="1/1">1/1</option>
+                    <option value="1/2">1/2</option>
+                    <option value="1/4">1/4</option>
+                  </select>
+                </div>
+
+                <div class="metro-control-section">
+                  <button id="prev-btn-metro" class="exertia-btn-metro">METRO</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
