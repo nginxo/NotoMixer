@@ -2077,14 +2077,16 @@ function setupUIListeners() {
     const btnLoopOut = document.getElementById(`btn-loop-out-${trackNum}`);
     const btnLoopExit = document.getElementById(`btn-loop-exit-${trackNum}`);
     
-    const loopOptions = [0.25, 0.5, 1, 2, 4, 8, 16];
-    let selectedOptionIndex = 4; // default 4 BEATS
+    const loopOptions = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16];
+    let selectedOptionIndex = 6; // default 4 BEATS
     
     function updateLoopDisplay() {
       const beats = loopOptions[selectedOptionIndex];
       tracks[trackNum].autoLoopBeats = beats;
       if (beats < 1) {
-        if (beats === 0.25) displayLoop.textContent = "1/4";
+        if (beats === 0.0625) displayLoop.textContent = "1/16";
+        else if (beats === 0.125) displayLoop.textContent = "1/8";
+        else if (beats === 0.25) displayLoop.textContent = "1/4";
         else if (beats === 0.5) displayLoop.textContent = "1/2";
       } else {
         displayLoop.textContent = beats.toString();
@@ -4635,11 +4637,29 @@ function startVisualizers() {
             }
           } else {
             ctx.fillStyle = '#666';
-            ctx.font = '9px monospace';
+            ctx.font = '12px monospace';
             ctx.textAlign = 'center';
             ctx.fillText("NO AUDIO FILE LOADED", width / 2, height / 2 + 3);
           }
         }
+
+        if (track.analyser) {
+          const bufferLength = track.analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+          track.analyser.getByteTimeDomainData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0 - 1.0;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / bufferLength);
+          let level = Math.min(1, rms * 3.5);
+          const vuCover = document.getElementById(`vu-bar-t${trackNum}-cover`);
+          if (vuCover) {
+            vuCover.style.width = (100 - level * 100) + '%';
+          }
+        }
+
       } catch (err) {
         console.error("Track visualizer draw error:", err);
       }
@@ -6504,7 +6524,7 @@ function drawPrevVisualizer() {
         }
       } else {
         ctx.fillStyle = '#666';
-        ctx.font = '9px monospace';
+        ctx.font = '12px monospace';
         ctx.textAlign = 'center';
         ctx.fillText("NO AUDIO FILE LOADED", width / 2, height / 2 + 3);
       }
@@ -6626,14 +6646,16 @@ function initInAppPreview() {
   const btnLoopOut = document.getElementById('prev-btn-loop-out');
   const btnLoopExit = document.getElementById('prev-btn-loop-exit');
   
-  const loopOptions = [0.25, 0.5, 1, 2, 4, 8, 16];
-  let selectedOptionIndex = 4; // default 4 BEATS
+  const loopOptions = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16];
+  let selectedOptionIndex = 6; // default 4 BEATS
   
   function updateLoopDisplay() {
     const beats = loopOptions[selectedOptionIndex];
     prevAutoLoopBeats = beats;
     if (beats < 1) {
-      if (beats === 0.25) displayLoop.textContent = "1/4";
+      if (beats === 0.0625) displayLoop.textContent = "1/16";
+      else if (beats === 0.125) displayLoop.textContent = "1/8";
+      else if (beats === 0.25) displayLoop.textContent = "1/4";
       else if (beats === 0.5) displayLoop.textContent = "1/2";
     } else {
       displayLoop.textContent = beats.toString();

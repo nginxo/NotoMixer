@@ -26,6 +26,24 @@
       </div>
       
       <div class="header-controls">
+        <!-- Master VU Meters -->
+        <div class="master-vu-meters" style="display: flex; flex-direction: column; gap: 4px; margin-right: 15px; width: 120px; padding: 2px; border-radius: 4px; background: var(--bg-rack);">
+          <!-- Track 1 VU -->
+          <div class="vu-track" style="display: flex; align-items: center; gap: 4px;" title="Track 1 Output Level">
+            <span style="font-size: 9px; font-weight: bold; color: var(--color-t1); width: 12px;">T1</span>
+            <div class="vu-bar-container" style="flex: 1; height: 6px; background: linear-gradient(90deg, #00ffcc 70%, #ffff00 85%, #ff0000 95%); border-radius: 2px; overflow: hidden; position: relative; border: 1px solid #333;">
+              <div id="vu-bar-t1-cover" style="position: absolute; top: 0; right: 0; height: 100%; width: 100%; background: #111; transition: width 0.05s ease-out;"></div>
+            </div>
+          </div>
+          <!-- Track 2 VU -->
+          <div class="vu-track" style="display: flex; align-items: center; gap: 4px;" title="Track 2 Output Level">
+            <span style="font-size: 9px; font-weight: bold; color: var(--color-t2); width: 12px;">T2</span>
+            <div class="vu-bar-container" style="flex: 1; height: 6px; background: linear-gradient(90deg, #00ffcc 70%, #ffff00 85%, #ff0000 95%); border-radius: 2px; overflow: hidden; position: relative; border: 1px solid #333;">
+              <div id="vu-bar-t2-cover" style="position: absolute; top: 0; right: 0; height: 100%; width: 100%; background: #111; transition: width 0.05s ease-out;"></div>
+            </div>
+          </div>
+        </div>
+
         <button id="btn-set-working-dir" class="exertia-btn-icon" title="Set Working Directory">
           <svg viewBox="0 0 24 24" class="header-icon"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
         </button>
