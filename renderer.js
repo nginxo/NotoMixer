@@ -192,6 +192,7 @@ const tracks = {
       { path: '', name: 'DROP FILE', buffer: null },
       { path: '', name: 'DROP FILE', buffer: null }
     ],
+    hotCues: Array(8).fill(null),
     // EQ filters (applied on combined mix)
     bassFilter: null,
     lowFilter: null,
@@ -270,6 +271,7 @@ const tracks = {
       { path: '', name: 'DROP FILE', buffer: null },
       { path: '', name: 'DROP FILE', buffer: null }
     ],
+    hotCues: Array(8).fill(null),
     // EQ filters (applied on combined mix)
     bassFilter: null,
     lowFilter: null,
@@ -1993,7 +1995,12 @@ function setupUIListeners() {
               
               btn.textContent = file.name.toUpperCase();
               btn.classList.add('loaded');
+              btn.style.color = ''; // Reset inline color
+              btn.style.borderColor = ''; // Reset inline border color
               btn.title = filePath;
+              
+              // Also clear any hot cue for this slot
+              tracks[trackNum].hotCues[btnIdx] = null;
               logConsole(`Success: Loaded sample '${file.name}' into Track ${trackNum} button ${btnIdx + 1}`, 'system');
             }, (decodeErr) => {
               btn.textContent = "DECODE ERR";
@@ -2006,31 +2013,80 @@ function setupUIListeners() {
         }
       });
       
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const track = tracks[trackNum];
+        let refAudio = null;
+        if (track.stems.main.exists) refAudio = track.stems.main.audio;
+        else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
+        else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
+        else if (track.isSynth && track.fallbackAudio) refAudio = track.fallbackAudio;
+        
+        if (refAudio && refAudio.duration) {
+          const cueTime = refAudio.currentTime;
+          track.hotCues[btnIdx] = cueTime;
+          const hotCueColors = ['#ff0055', '#ffaa00', '#ffff00', '#00ff00', '#00ffff', '#0055ff', '#aa00ff', '#ff00aa'];
+          const cueColor = hotCueColors[btnIdx % hotCueColors.length];
+          track.soundButtons[btnIdx] = { path: '', name: 'CUE', buffer: null };
+          
+          btn.textContent = `CUE ${btnIdx + 1}`;
+          btn.classList.add('loaded');
+          btn.style.color = cueColor; // Special color for cues
+          btn.style.borderColor = cueColor; // Outline color matches the cue color
+          logConsole(`Success: Set Hot Cue ${btnIdx + 1} at ${cueTime.toFixed(2)}s on Track ${trackNum}`, 'system');
+        } else {
+          logConsole(`Err: Cannot set cue, no audio playing on Track ${trackNum}`, 'err');
+        }
+      });
+
       btn.addEventListener('click', () => {
-        const soundData = tracks[trackNum].soundButtons[btnIdx];
-        if (soundData && soundData.buffer) {
-          initAudio(trackNum);
-          if (audioCtx && audioCtx.state === 'suspended') {
-            audioCtx.resume();
-          }
-          try {
-            const sourceNode = audioCtx.createBufferSource();
-            sourceNode.buffer = soundData.buffer;
-            
-            // Connect to track's Bass filter to apply EQ, Volume, Filters, etc.
-            sourceNode.connect(tracks[trackNum].bassFilter);
-            
-            btn.classList.add('playing');
-            sourceNode.onended = () => {
-              btn.classList.remove('playing');
-            };
-            
-            sourceNode.start(0);
-          } catch (playErr) {
-            logConsole(`Err: Failed to play sample: ${playErr.message}`, 'err');
+        const track = tracks[trackNum];
+        const cueTime = track.hotCues[btnIdx];
+        
+        if (cueTime !== null) {
+          // It's a Hot Cue
+          if (track.stems.main.exists) track.stems.main.audio.currentTime = cueTime;
+          if (track.stems.vocals.exists) track.stems.vocals.audio.currentTime = cueTime;
+          track.stems.inst.audios.forEach(item => item.audio.currentTime = cueTime);
+          if (track.isSynth && track.fallbackAudio) track.fallbackAudio.currentTime = cueTime;
+          handleTrackProgress(trackNum);
+          
+          // Flash the button
+          btn.classList.add('playing');
+          setTimeout(() => btn.classList.remove('playing'), 150);
+          
+          // Start playback if not already playing (optional but standard for hot cues)
+          if (!track.isPlaying) {
+             const playBtn = document.getElementById(`btn-play-${trackNum}`);
+             if (playBtn) playBtn.click();
           }
         } else {
-          logConsole(`Info: Button ${btnIdx + 1} is empty. Drag & drop an audio file from File Explorer to assign it.`, 'system');
+          // It's a Sample (or empty)
+          const soundData = track.soundButtons[btnIdx];
+          if (soundData && soundData.buffer) {
+            initAudio(trackNum);
+            if (audioCtx && audioCtx.state === 'suspended') {
+              audioCtx.resume();
+            }
+            try {
+              const sourceNode = audioCtx.createBufferSource();
+              sourceNode.buffer = soundData.buffer;
+              
+              // Connect to track's Bass filter to apply EQ, Volume, Filters, etc.
+              sourceNode.connect(track.bassFilter);
+              
+              btn.classList.add('playing');
+              sourceNode.onended = () => {
+                btn.classList.remove('playing');
+              };
+              
+              sourceNode.start(0);
+            } catch (playErr) {
+              logConsole(`Err: Failed to play sample: ${playErr.message}`, 'err');
+            }
+          } else {
+            logConsole(`Info: Button ${btnIdx + 1} is empty. Drag & drop an audio file, or right-click to set a Hot Cue.`, 'system');
+          }
         }
       });
     }
@@ -4356,6 +4412,30 @@ function startVisualizers() {
               oCtx.moveTo(loopEndX, 0); oCtx.lineTo(loopEndX, oH);
               oCtx.stroke();
             }
+
+            // Draw Hot Cues on overview
+            if (track.hotCues) {
+              const hotCueColors = ['#ff0055', '#ffaa00', '#ffff00', '#00ff00', '#00ffff', '#0055ff', '#aa00ff', '#ff00aa'];
+              for (let i = 0; i < 8; i++) {
+                const cueTime = track.hotCues[i];
+                if (cueTime !== null) {
+                  const cueColor = hotCueColors[i % hotCueColors.length];
+                  const cueX = (cueTime / duration) * oW;
+                  oCtx.fillStyle = cueColor;
+                  oCtx.beginPath();
+                  oCtx.moveTo(cueX - 3, 0);
+                  oCtx.lineTo(cueX + 3, 0);
+                  oCtx.lineTo(cueX, 4);
+                  oCtx.fill();
+                  oCtx.strokeStyle = cueColor;
+                  oCtx.lineWidth = 1;
+                  oCtx.beginPath();
+                  oCtx.moveTo(cueX, 0);
+                  oCtx.lineTo(cueX, oH);
+                  oCtx.stroke();
+                }
+              }
+            }
           }
         }
         
@@ -4634,6 +4714,41 @@ function startVisualizers() {
               ctx.moveTo(startX, 0); ctx.lineTo(startX, height);
               ctx.moveTo(endX, 0); ctx.lineTo(endX, height);
               ctx.stroke();
+            }
+            
+            // Draw Hot Cues on scrolling waveform
+            if (track.hotCues) {
+              const hotCueColors = ['#ff0055', '#ffaa00', '#ffff00', '#00ff00', '#00ffff', '#0055ff', '#aa00ff', '#ff00aa'];
+              for (let i = 0; i < 8; i++) {
+                const cueTime = track.hotCues[i];
+                if (cueTime !== null) {
+                  const cuePct = cueTime / duration;
+                  const cueX = width / 2 + ((cuePct - currentPct) / zoomPercent) * (width / 2);
+                  
+                  if (cueX >= 0 && cueX <= width) {
+                    const cueColor = hotCueColors[i % hotCueColors.length];
+                    ctx.strokeStyle = cueColor;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(cueX, 0);
+                    ctx.lineTo(cueX, height);
+                    ctx.stroke();
+                    
+                    const text = `CUE ${i + 1}`;
+                    ctx.font = 'bold 9px monospace';
+                    const textWidth = ctx.measureText(text).width;
+                    const rectWidth = textWidth + 8;
+                    const rectHeight = 14;
+                    
+                    ctx.fillStyle = cueColor;
+                    ctx.fillRect(cueX, height - rectHeight, rectWidth, rectHeight);
+                    
+                    ctx.fillStyle = '#111';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(text, cueX + 4, height - 4);
+                  }
+                }
+              }
             }
           } else {
             ctx.fillStyle = '#666';
@@ -7067,33 +7182,38 @@ function setupCanvasScratching(trackNum, canvas) {
       
       if (deltaTime <= 0) return;
       
-      // Edge-scrolling shifts startTime continuously
       if (edgeScrollSpeed !== 0) {
         startTime += edgeScrollSpeed * deltaTime;
         startTime = Math.max(0, Math.min(refAudio.duration - 0.02, startTime));
       }
       
-      // Calculate target playhead position based on drag offset + edge scroll
       const dx = currentClientX - startX;
-      const timeDelta = (dx / pixelsPerSecond) * 2.5;
+      const timeDelta = (dx / pixelsPerSecond) * 1.0;
       let newTime = startTime - timeDelta;
-      newTime = Math.max(0, Math.min(refAudio.duration - 0.02, newTime));
       
-      // Calculate instantaneous playback rate
-      const dtAudio = newTime - lastPlayheadTime;
+      if (newTime < 0) {
+        newTime = 0;
+        startX = currentClientX - (startTime * pixelsPerSecond / 1.0);
+      } else if (newTime > refAudio.duration - 0.02) {
+        newTime = refAudio.duration - 0.02;
+        startX = currentClientX + ((refAudio.duration - 0.02 - startTime) * pixelsPerSecond / 1.0);
+      }
+      
+      // 1:1 direct tracking (no lag)
+      const dtAudio = newTime - audioPlayheadTime;
       const secondsPerSecond = dtAudio / deltaTime;
-      lastPlayheadTime = newTime;
       
-      // Apply power curve for natural scratching pitch changes (slow = close to 1x, fast = high pitch)
-      const rawRate = Math.max(-30.0, Math.min(30.0, secondsPerSecond));
-      const targetRate = Math.sign(rawRate) * Math.pow(Math.abs(rawRate), 0.65);
+      let targetRate = secondsPerSecond;
+      if (Math.abs(targetRate) >= 1.0) {
+         targetRate = Math.sign(targetRate) * Math.pow(Math.abs(targetRate), 0.65);
+      }
+      targetRate = Math.max(-50.0, Math.min(50.0, targetRate));
+      
+      // Force waveform to stick perfectly to the mouse
+      audioPlayheadTime = newTime;
       
       const isForward = (targetRate >= 0);
       const absRate = Math.abs(targetRate);
-      
-      // Accumulate audio playhead position
-      audioPlayheadTime += targetRate * deltaTime;
-      audioPlayheadTime = Math.max(0, Math.min(refAudio.duration - 0.02, audioPlayheadTime));
       
       // Swap buffers on direction change to support true backward scratching in Chromium
       if (scratchDirection === null || scratchDirection !== isForward) {
@@ -7297,22 +7417,32 @@ function setupPreviewCanvasScratching(canvas) {
       }
       
       const dx = currentClientX - startX;
-      const timeDelta = (dx / pixelsPerSecond) * 2.5;
+      const timeDelta = (dx / pixelsPerSecond) * 1.0;
       let newTime = startTime - timeDelta;
-      newTime = Math.max(0, Math.min(refAudio.duration - 0.02, newTime));
       
-      const dtAudio = newTime - lastPlayheadTime;
+      if (newTime < 0) {
+        newTime = 0;
+        startX = currentClientX - (startTime * pixelsPerSecond / 1.0);
+      } else if (newTime > refAudio.duration - 0.02) {
+        newTime = refAudio.duration - 0.02;
+        startX = currentClientX + ((refAudio.duration - 0.02 - startTime) * pixelsPerSecond / 1.0);
+      }
+      
+      // 1:1 direct tracking (no lag)
+      const dtAudio = newTime - audioPlayheadTime;
       const secondsPerSecond = dtAudio / deltaTime;
-      lastPlayheadTime = newTime;
       
-      const rawRate = Math.max(-30.0, Math.min(30.0, secondsPerSecond));
-      const targetRate = Math.sign(rawRate) * Math.pow(Math.abs(rawRate), 0.65);
+      let targetRate = secondsPerSecond;
+      if (Math.abs(targetRate) >= 1.0) {
+         targetRate = Math.sign(targetRate) * Math.pow(Math.abs(targetRate), 0.65);
+      }
+      targetRate = Math.max(-50.0, Math.min(50.0, targetRate));
+      
+      // Force waveform to stick perfectly to the mouse
+      audioPlayheadTime = newTime;
       
       const isForward = (targetRate >= 0);
       const absRate = Math.abs(targetRate);
-      
-      audioPlayheadTime += targetRate * deltaTime;
-      audioPlayheadTime = Math.max(0, Math.min(refAudio.duration - 0.02, audioPlayheadTime));
       
       if (scratchDirection === null || scratchDirection !== isForward) {
         scratchSources.forEach(item => {
