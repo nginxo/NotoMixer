@@ -9,19 +9,52 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="app-daemon-locked">
+  <div
+    id="song-analyzer-daemon"
+    class="song-analyzer-daemon-overlay show"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="song-analyzer-title"
+    aria-describedby="song-analyzer-status"
+  >
+    <div class="song-analyzer-daemon-panel">
+      <div class="song-analyzer-daemon-header">
+        <span class="song-analyzer-daemon-led" aria-hidden="true"></span>
+        <span id="song-analyzer-title">NOTOMIXER SONG ANALYZER DAEMON</span>
+      </div>
+      <div class="song-analyzer-daemon-body">
+        <div class="song-analyzer-daemon-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <p id="song-analyzer-status" class="song-analyzer-daemon-status">Starting analysis service...</p>
+        <p id="song-analyzer-current" class="song-analyzer-daemon-current">Preparing music library</p>
+        <div
+          id="song-analyzer-progress"
+          class="song-analyzer-progress"
+          role="progressbar"
+          aria-label="Song analysis progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <div id="song-analyzer-progress-fill" class="song-analyzer-progress-fill"></div>
+          <div class="song-analyzer-progress-scanline"></div>
+        </div>
+        <div class="song-analyzer-daemon-footer">
+          <span id="song-analyzer-count">0 / 0</span>
+          <span id="song-analyzer-percent">0%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="exertia-container">
     
     <!-- Top Bar (exertia Menu Style) -->
     <header class="exertia-header">
       <div class="header-logo">
-        <span class="logo-symbol">
-          <span class="logo-bar">|</span>
-          <span class="logo-bar">|</span>
-          <span class="logo-bar">|</span>
-          <span class="logo-bar">|</span>
-          <span class="logo-bar">|</span>
-        </span>
+        <img src="logo.svg" class="header-logo-mark" alt="" aria-hidden="true">
         <h2>notoMixer</h2>
       </div>
       
@@ -126,25 +159,6 @@
 
           <div class="track-body">
             
-            <!-- Folder Info & Stem Indicators -->
-            <div class="folder-status-panel">
-              <div class="dir-path-display" id="dir-path-1">No song loaded</div>
-              <div class="stems-led-grid">
-                <div class="stem-indicator" id="ind-inst-1">
-                  <span class="indicator-box"></span>
-                  <span class="indicator-label">INST</span>
-                </div>
-                <div class="stem-indicator" id="ind-main-1">
-                  <span class="indicator-box"></span>
-                  <span class="indicator-label">MAIN</span>
-                </div>
-                <div class="stem-indicator" id="ind-vocals-1">
-                  <span class="indicator-box"></span>
-                  <span class="indicator-label">VOCALS</span>
-                </div>
-              </div>
-            </div>
-
             <!-- Waveform Visualizer -->
             <div class="visualizer-block" id="visualizer-block-1">
               <div class="visualizer-header">
@@ -175,9 +189,10 @@
               </div>
               
               <button class="btn-beat-sync" id="btn-sync-1">SYNC</button>
+              <button class="btn-end-sync" id="btn-end-sync-1" title="End Sync: right-click to set the transition time">ES</button>
               <button class="btn-quantize" id="btn-quantize-1" title="Quantize: snap actions to beatgrid">Q</button>
               <div class="time-counter" id="time-display-1">
-                <span id="time-current-1">0:00</span>
+                <span id="time-current-1" contenteditable="true" style="cursor: text; border-bottom: 1px dashed rgba(255,255,255,0.4); outline: none; padding: 0 2px;">0:00</span>
                 <span class="time-divider">|</span>
                 <span id="time-duration-1">0:00</span>
               </div>
@@ -432,7 +447,30 @@
 
                 <!-- Section 4: Metronome Toggle -->
                 <div class="metro-control-section">
+                  <button id="btn-tap-1" class="exertia-btn-tap" title="Tap repeatedly to set Track 1 BPM">TAP</button>
                   <button id="btn-metro-1" class="exertia-btn-metro">METRO</button>
+                  <div class="metro-stem-indicators" aria-label="Track 1 loaded stems">
+                    <div class="stem-indicator" id="ind-inst-1">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">INST</span>
+                    </div>
+                    <div class="stem-indicator" id="ind-main-1">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">MAIN</span>
+                    </div>
+                    <div class="stem-indicator" id="ind-vocals-1">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">VOCALS</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="deck-platter-section" id="deck-platter-1" aria-label="Track 1 platter">
+                  <div class="deck-platter-disc">
+                    <img id="deck-platter-cover-1" class="deck-platter-cover" alt="">
+                    <span class="deck-platter-grooves"></span>
+                    <span class="deck-platter-position-line"></span>
+                    <span class="deck-platter-spindle"></span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -449,25 +487,6 @@
 
           <div class="track-body">
             
-            <!-- Folder Info & Stem Indicators -->
-            <div class="folder-status-panel">
-              <div class="dir-path-display" id="dir-path-2">No song loaded</div>
-              <div class="stems-led-grid">
-                <div class="stem-indicator" id="ind-inst-2">
-                  <span class="indicator-box"></span>
-                  <span class="indicator-label">INST</span>
-                </div>
-                <div class="stem-indicator" id="ind-main-2">
-                  <span class="indicator-box"></span>
-                  <span class="indicator-label">MAIN</span>
-                </div>
-                <div class="stem-indicator" id="ind-vocals-2">
-                  <span class="indicator-box"></span>
-                  <span class="indicator-label">VOCALS</span>
-                </div>
-              </div>
-            </div>
-
             <!-- Waveform Visualizer -->
             <div class="visualizer-block" id="visualizer-block-2">
               <div class="visualizer-header">
@@ -498,9 +517,10 @@
               </div>
               
               <button class="btn-beat-sync" id="btn-sync-2">SYNC</button>
+              <button class="btn-end-sync" id="btn-end-sync-2" title="End Sync: right-click to set the transition time">ES</button>
               <button class="btn-quantize" id="btn-quantize-2" title="Quantize: snap actions to beatgrid">Q</button>
               <div class="time-counter" id="time-display-2">
-                <span id="time-current-2">0:00</span>
+                <span id="time-current-2" contenteditable="true" style="cursor: text; border-bottom: 1px dashed rgba(255,255,255,0.4); outline: none; padding: 0 2px;">0:00</span>
                 <span class="time-divider">|</span>
                 <span id="time-duration-2">0:00</span>
               </div>
@@ -755,7 +775,30 @@
 
                 <!-- Section 4: Metronome Toggle -->
                 <div class="metro-control-section">
+                  <button id="btn-tap-2" class="exertia-btn-tap" title="Tap repeatedly to set Track 2 BPM">TAP</button>
                   <button id="btn-metro-2" class="exertia-btn-metro">METRO</button>
+                  <div class="metro-stem-indicators" aria-label="Track 2 loaded stems">
+                    <div class="stem-indicator" id="ind-inst-2">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">INST</span>
+                    </div>
+                    <div class="stem-indicator" id="ind-main-2">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">MAIN</span>
+                    </div>
+                    <div class="stem-indicator" id="ind-vocals-2">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">VOCALS</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="deck-platter-section" id="deck-platter-2" aria-label="Track 2 platter">
+                  <div class="deck-platter-disc">
+                    <img id="deck-platter-cover-2" class="deck-platter-cover" alt="">
+                    <span class="deck-platter-grooves"></span>
+                    <span class="deck-platter-position-line"></span>
+                    <span class="deck-platter-spindle"></span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -780,6 +823,65 @@
       </div>
     </footer>
 
+  </div>
+
+  <!-- End Sync Settings Modal -->
+  <div id="end-sync-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="end-sync-modal-title">
+    <div class="exertia-modal-content end-sync-modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="end-sync-modal-title">END SYNC</span>
+      </div>
+      <div class="modal-body">
+        <label class="end-sync-field" for="end-sync-seconds">
+          <span>START BEFORE TRACK END</span>
+          <span class="end-sync-input-wrap">
+            <input type="number" id="end-sync-seconds" class="end-sync-seconds-input" min="1" max="600" step="1" value="30">
+            <span>SECONDS</span>
+          </span>
+        </label>
+        <div class="end-sync-mix-panel">
+          <label class="end-sync-mix-toggle" for="end-sync-mix-enabled">
+            <span>
+              <strong>MIX</strong>
+              <small>START THE OTHER TRACK EARLY</small>
+            </span>
+            <input type="checkbox" id="end-sync-mix-enabled" class="exertia-checkbox">
+          </label>
+          <label class="end-sync-field end-sync-mix-value" for="end-sync-mix-seconds">
+            <span>MIX VALUE</span>
+            <span class="end-sync-input-wrap">
+              <input type="number" id="end-sync-mix-seconds" class="end-sync-seconds-input" min="1" max="600" step="1" value="5">
+              <span>SECONDS</span>
+            </span>
+          </label>
+          <div class="end-sync-fade-options">
+            <label for="end-sync-fade-in">
+              <span>FADE IN</span>
+              <input type="checkbox" id="end-sync-fade-in" class="exertia-checkbox">
+            </label>
+            <label for="end-sync-fade-out">
+              <span>FADE OUT</span>
+              <input type="checkbox" id="end-sync-fade-out" class="exertia-checkbox">
+            </label>
+          </div>
+          <label class="end-sync-field end-sync-fade-value" for="end-sync-fade-seconds">
+            <span>FADE VALUE</span>
+            <span class="end-sync-input-wrap">
+              <input type="number" id="end-sync-fade-seconds" class="end-sync-seconds-input" min="1" max="600" step="1" value="5">
+              <span>SECONDS</span>
+            </span>
+          </label>
+        </div>
+        <p class="modal-subtext" id="end-sync-description">
+          The track tempo will ease toward the other track before handing playback over.
+        </p>
+        <p class="end-sync-hint">Left-click ES to enable it. Right-click ES to reopen this setting.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="end-sync-btn-cancel" class="exertia-btn-modal">Cancel</button>
+        <button id="end-sync-btn-save" class="exertia-btn-modal btn-orange">Save</button>
+      </div>
+    </div>
   </div>
 
   <!-- Connection Warning Modal Overlay -->
@@ -810,7 +912,9 @@
         <!-- Settings Left Sidebar Menu (Matches screenshot Option 1 list) -->
         <div class="settings-sidebar">
           <button class="settings-menu-item active" data-tab="general">General</button>
+          <button class="settings-menu-item" data-tab="music">Music</button>
           <button class="settings-menu-item" data-tab="eqs-sliders">EQs and Sliders</button>
+          <button class="settings-menu-item" data-tab="keybinds">Keybinds</button>
           <button class="settings-menu-item" data-tab="zoom">Zoom</button>
           <button class="settings-menu-item" data-tab="info">Info</button>
         </div>
@@ -870,6 +974,43 @@
             </div>
           </div>
           
+          <!-- Music Tab -->
+          <div class="settings-tab-content" id="tab-music">
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-copy">
+                  <label for="setting-skip-opening-silence" class="settings-label">SKIP OPENING SILENCE</label>
+                  <span class="settings-desc">Start playback at the first sustained audible sound when a track is at the beginning.</span>
+                </div>
+                <input type="checkbox" id="setting-skip-opening-silence" class="exertia-checkbox">
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-copy">
+                  <label for="setting-skip-ending-silence" class="settings-label">SKIP ENDING SILENCE</label>
+                  <span class="settings-desc">Treat the last sustained audible sound as the track end. ES transitions and handoffs use this boundary too.</span>
+                </div>
+                <input type="checkbox" id="setting-skip-ending-silence" class="exertia-checkbox">
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-copy">
+                  <label for="setting-music-ending-warning" class="settings-label">MUSIC ENDING WARNING</label>
+                  <span class="settings-desc">Pulse the colored track header at the song BPM during the final 30 seconds.</span>
+                </div>
+                <input type="checkbox" id="setting-music-ending-warning" class="exertia-checkbox">
+              </div>
+            </div>
+
+            <div class="settings-card music-analysis-note">
+              <span class="settings-desc">Silence boundaries are detected automatically across all loaded stems. Short pauses inside a song are never skipped.</span>
+            </div>
+          </div>
+
           <!-- EQs & Sliders Tab -->
           <div class="settings-tab-content" id="tab-eqs-sliders">
             <div class="settings-card">
@@ -888,6 +1029,42 @@
                 <input type="range" id="setting-snap-threshold" min="1" max="15" value="5" class="exertia-settings-slider">
                 <span class="settings-desc">Snaps knobs (EQ gains, Pan, Pitch, Filter, Speed) to their default center value when dragged close to it.</span>
               </div>
+            </div>
+          </div>
+
+          <!-- Keybinds Tab -->
+          <div class="settings-tab-content" id="tab-keybinds">
+            <div class="settings-card keybind-fixed-card">
+              <div class="settings-row">
+                <div class="settings-copy">
+                  <span class="settings-label">PLAY / PAUSE</span>
+                  <span class="settings-desc">Always controls the currently selected track.</span>
+                </div>
+                <kbd class="keybind-fixed-key">SPACE</kbd>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="keybind-settings-grid">
+                <label for="keybind-auto">AUTO LOOP</label>
+                <input id="keybind-auto" class="keybind-capture-input" data-keybind-action="auto" readonly>
+                <label for="keybind-loop-in">LOOP IN</label>
+                <input id="keybind-loop-in" class="keybind-capture-input" data-keybind-action="loopIn" readonly>
+                <label for="keybind-loop-out">LOOP OUT</label>
+                <input id="keybind-loop-out" class="keybind-capture-input" data-keybind-action="loopOut" readonly>
+                <label for="keybind-loop-exit">LOOP EXIT</label>
+                <input id="keybind-loop-exit" class="keybind-capture-input" data-keybind-action="loopExit" readonly>
+                <label for="keybind-sync">SYNC</label>
+                <input id="keybind-sync" class="keybind-capture-input" data-keybind-action="sync" readonly>
+                <label for="keybind-es">END SYNC (ES)</label>
+                <input id="keybind-es" class="keybind-capture-input" data-keybind-action="endSync" readonly>
+                <label for="keybind-quantize">QUANTIZE (Q)</label>
+                <input id="keybind-quantize" class="keybind-capture-input" data-keybind-action="quantize" readonly>
+              </div>
+            </div>
+
+            <div class="settings-card keybind-help-card">
+              <span class="settings-desc">Click a field and press a key. Backspace or Delete clears it. Button/Cue slot keys are configured from a cue button's middle-click settings.</span>
             </div>
           </div>
           
@@ -980,25 +1157,6 @@
 
         <div class="track-body">
           
-          <!-- Folder Info & Stem Indicators -->
-          <div class="folder-status-panel">
-            <div class="dir-path-display" id="prev-dir-path">Loading path...</div>
-            <div class="stems-led-grid">
-              <div class="stem-indicator" id="prev-ind-inst">
-                <span class="indicator-box"></span>
-                <span class="indicator-label">INST</span>
-              </div>
-              <div class="stem-indicator" id="prev-ind-main">
-                <span class="indicator-box"></span>
-                <span class="indicator-label">MAIN</span>
-              </div>
-              <div class="stem-indicator" id="prev-ind-vocals">
-                <span class="indicator-box"></span>
-                <span class="indicator-label">VOCALS</span>
-              </div>
-            </div>
-          </div>
-
           <!-- Waveform Visualizer -->
           <div class="visualizer-block" id="prev-visualizer-block">
             <div class="visualizer-header">
@@ -1029,7 +1187,7 @@
             </div>
             
             <div class="time-counter" id="prev-time-display">
-              <span id="prev-time-current">0:00</span>
+              <span id="prev-time-current" contenteditable="true" style="cursor: text; border-bottom: 1px dashed rgba(255,255,255,0.4); outline: none; padding: 0 2px;">0:00</span>
               <span class="time-divider">|</span>
               <span id="prev-time-duration">0:00</span>
             </div>
@@ -1278,7 +1436,22 @@
                 </div>
 
                 <div class="metro-control-section">
+                  <button id="prev-btn-tap" class="exertia-btn-tap" title="Tap repeatedly to set Preview BPM">TAP</button>
                   <button id="prev-btn-metro" class="exertia-btn-metro">METRO</button>
+                  <div class="metro-stem-indicators" aria-label="Preview loaded stems">
+                    <div class="stem-indicator" id="prev-ind-inst">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">INST</span>
+                    </div>
+                    <div class="stem-indicator" id="prev-ind-main">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">MAIN</span>
+                    </div>
+                    <div class="stem-indicator" id="prev-ind-vocals">
+                      <span class="indicator-box"></span>
+                      <span class="indicator-label">VOCALS</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1288,6 +1461,35 @@
       </div>
 
     </div>
+
+  <!-- Draggable In-App Cue Settings Window -->
+  <div id="cue-settings-window" class="in-app-window" style="width: 320px; height: 220px; min-width: 300px; min-height: 210px; left: 40%; top: 40%; z-index: 2000;">
+    <div class="in-app-window-header" id="cue-settings-header">
+      <span class="in-app-window-title" id="cue-settings-title">CUE SETTINGS</span>
+      <button id="btn-close-cue-settings-x" class="in-app-window-close">&times;</button>
+    </div>
+    <div class="in-app-window-body" style="padding: 15px;">
+      <div class="cue-settings-options" style="color: #fff; font-size: 12px; font-family: 'Inter', sans-serif;">
+        <label style="display: flex; align-items: center; margin-bottom: 15px; cursor: pointer;">
+          <input type="radio" name="cueMode" value="play" id="cueModePlay" checked style="margin-right: 10px; accent-color: var(--orange-primary);">
+          <span>Play (Jump to point and play)</span>
+        </label>
+        <label style="display: flex; align-items: center; margin-bottom: 20px; cursor: pointer;">
+          <input type="radio" name="cueMode" value="hold" id="cueModeHold" style="margin-right: 10px; accent-color: var(--orange-primary);">
+          <span>Play whilst holding (Gate mode)</span>
+        </label>
+        <label class="cue-keybind-row" for="cue-keybind-input">
+          <span>KEYBIND</span>
+          <input id="cue-keybind-input" class="keybind-capture-input" readonly>
+        </label>
+      </div>
+      <div class="cue-settings-actions" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button id="btn-remove-cue-settings" class="exertia-btn-modal" style="color: #ff5555; border-color: #ff5555; margin-right: auto;">REMOVE</button>
+        <button id="btn-close-cue-settings" class="exertia-btn-modal">CANCEL</button>
+        <button id="btn-save-cue-settings" class="exertia-btn-modal btn-orange">SAVE</button>
+      </div>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
