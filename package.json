@@ -4,15 +4,21 @@
   "description": "DJ Mixer connected to ESP32 via Serial",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build:installer": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build-installer.ps1"
   },
   "dependencies": {
-    "music-metadata": "^7.14.0"
+    "music-metadata": "^7.14.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@electron/packager": "^20.0.4",
     "electron": "^31.0.0"
   },
   "keywords": [],
   "author": "exertia Group",
-  "license": "ISC"
+  "license": "ISC",
+  "allowScripts": {
+    "electron": true
+  }
 }

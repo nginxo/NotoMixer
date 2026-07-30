@@ -54,7 +54,7 @@
     <!-- Top Bar (exertia Menu Style) -->
     <header class="exertia-header">
       <div class="header-logo">
-        <img src="logo.svg" class="header-logo-mark" alt="" aria-hidden="true">
+        <img class="header-logo-mark" alt="" aria-hidden="true">
         <h2>notoMixer</h2>
       </div>
       
@@ -92,6 +92,12 @@
         </div>
         
         <button id="btn-connect" class="exertia-btn">CONNECT</button>
+        <button
+          id="btn-tablet-controller"
+          class="exertia-btn tablet-controller-button"
+          title="Open web controller"
+          aria-label="Open web controller"
+        >WEB</button>
         
         <div class="conn-led-wrapper">
           <span class="conn-led disconnected" id="connection-led"></span>
@@ -101,9 +107,9 @@
     </header>
 
     <!-- Main Workspace (Sidebar + Stems Rack) -->
-    <div class="exertia-workspace">
+    <div class="exertia-workspace explorer-bottom">
       
-      <!-- Left Sidebar (Draggable Songs Explorer) -->
+      <!-- Bottom Songs Explorer -->
       <aside class="exertia-sidebar">
         <!-- Resize Handle -->
         <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
@@ -210,6 +216,7 @@
             <div class="track-tab-header">
               <button class="track-tab-btn active" data-tab="eq" data-track="1">EQ</button>
               <button class="track-tab-btn" data-tab="buttons" data-track="1">BUTTONS</button>
+              <button class="track-tab-btn" data-tab="macros" data-track="1">MACRO</button>
             </div>
 
             <!-- Compact EQ & Volume Grid (All 6 Knobs together, Volume as Input box) -->
@@ -414,6 +421,8 @@
                     <button class="sound-btn" id="sound-btn-1-7">DROP FILE</button>
                   </div>
                 </div>
+
+                <div class="macro-buttons-grid track-tab-content" id="track-content-macros-1"></div>
               </div>
 
               <!-- Compact Volume Strip (Keyboard Input Field, No Graphic Fader) -->
@@ -538,6 +547,7 @@
             <div class="track-tab-header">
               <button class="track-tab-btn active" data-tab="eq" data-track="2">EQ</button>
               <button class="track-tab-btn" data-tab="buttons" data-track="2">BUTTONS</button>
+              <button class="track-tab-btn" data-tab="macros" data-track="2">MACRO</button>
             </div>
 
             <!-- Compact EQ & Volume Grid -->
@@ -742,6 +752,8 @@
                     <button class="sound-btn" id="sound-btn-2-7">DROP FILE</button>
                   </div>
                 </div>
+
+                <div class="macro-buttons-grid track-tab-content" id="track-content-macros-2"></div>
               </div>
 
               <!-- Compact Volume Strip (Keyboard Input Field, No Graphic Fader) -->
@@ -884,6 +896,48 @@
     </div>
   </div>
 
+  <div id="macro-config-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="macro-config-title">
+    <div class="exertia-modal-content macro-config-modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="macro-config-title">MACRO CONFIGURATION</span>
+      </div>
+      <div class="modal-body macro-config-modal-body">
+        <label class="macro-config-field" for="macro-config-name">
+          <span>NAME</span>
+          <input id="macro-config-name" class="macro-config-input" type="text" maxlength="24" autocomplete="off">
+        </label>
+        <label class="macro-config-field" for="macro-config-transition">
+          <span>TRANSITION VALUE</span>
+          <span class="macro-transition-input-wrap">
+            <input id="macro-config-transition" class="macro-config-input" type="number" min="0" max="600" step="0.1" value="0">
+            <span>SECONDS</span>
+          </span>
+        </label>
+        <label class="macro-lock-row" for="macro-config-lock">
+          <span>
+            <strong>LOCK</strong>
+            <small>KEEP THIS MACRO AFTER CLOSING NOTOMIXER</small>
+          </span>
+          <input id="macro-config-lock" class="exertia-checkbox" type="checkbox">
+        </label>
+        <div class="macro-assignment-panel">
+          <div class="macro-assignment-heading">
+            <span>ASSIGNED CONTROLS</span>
+            <span id="macro-config-count">0</span>
+          </div>
+          <div id="macro-config-assignments" class="macro-assignment-list"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="macro-config-clear" class="exertia-btn-modal">CLEAR</button>
+        <button id="macro-config-cancel" class="exertia-btn-modal">CANCEL</button>
+        <button id="macro-config-save" class="exertia-btn-modal btn-orange">SAVE</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="macro-assign-context-menu" class="macro-context-menu" role="menu" aria-hidden="true"></div>
+
   <!-- Connection Warning Modal Overlay -->
   <div id="connection-modal" class="exertia-modal-overlay">
     <div class="exertia-modal-content">
@@ -901,6 +955,42 @@
     </div>
   </div>
 
+  <!-- Evaluation Copy Notice -->
+  <div id="evaluation-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="evaluation-modal-title" aria-hidden="true">
+    <div class="exertia-modal-content evaluation-modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="evaluation-modal-title">EVALUATION COPY</span>
+      </div>
+      <div class="modal-body">
+        <p>This is an evaluation copy of notoMixer and may contain bugs or unfinished behavior.</p>
+        <p class="modal-subtext">Please report any issues you encounter so they can be investigated and fixed.</p>
+        <p class="evaluation-confidentiality">CONFIDENTIAL SOFTWARE — Do not share, redistribute, publish, or provide this copy to other people.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="evaluation-btn-confirm" class="exertia-btn-modal btn-orange">I UNDERSTAND</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local Tablet Controller -->
+  <div id="tablet-controller-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tablet-controller-title">
+    <div class="exertia-modal-content tablet-controller-modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="tablet-controller-title">WEB CONTROLLER</span>
+      </div>
+      <div class="modal-body tablet-controller-modal-body">
+        <span class="tablet-address-label">OPEN ON YOUR DEVICE</span>
+        <div id="tablet-controller-address" class="tablet-controller-address">
+          STARTING...
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-tablet-controller-close" class="exertia-btn-modal">CLOSE</button>
+        <button id="btn-tablet-controller-copy" class="exertia-btn-modal btn-orange" disabled>COPY</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings Modal Overlay -->
   <div id="settings-modal" class="exertia-modal-overlay">
     <div class="exertia-modal-content settings-modal-content">
@@ -909,12 +999,13 @@
       </div>
       <div class="modal-body settings-modal-body">
         
-        <!-- Settings Left Sidebar Menu (Matches screenshot Option 1 list) -->
+        <!-- Settings category menu -->
         <div class="settings-sidebar">
           <button class="settings-menu-item active" data-tab="general">General</button>
           <button class="settings-menu-item" data-tab="music">Music</button>
           <button class="settings-menu-item" data-tab="eqs-sliders">EQs and Sliders</button>
           <button class="settings-menu-item" data-tab="keybinds">Keybinds</button>
+          <button class="settings-menu-item" data-tab="controllers">Controllers</button>
           <button class="settings-menu-item" data-tab="zoom">Zoom</button>
           <button class="settings-menu-item" data-tab="info">Info</button>
         </div>
@@ -960,18 +1051,6 @@
               </div>
             </div>
 
-            <div class="settings-card">
-              <div class="settings-row flex-col">
-                <div class="flex-row-between">
-                  <label for="setting-explorer-layout" class="settings-label">SONG EXPLORER LAYOUT</label>
-                </div>
-                <select id="setting-explorer-layout" class="exertia-select-mini" style="width: 100%; height: 26px; font-size: 11px;">
-                  <option value="sidebar">Left Sidebar (Default)</option>
-                  <option value="bottom">Bottom Panel</option>
-                </select>
-                <span class="settings-desc">Choose between a vertical left sidebar or a horizontal bottom explorer.</span>
-              </div>
-            </div>
           </div>
           
           <!-- Music Tab -->
@@ -1067,6 +1146,69 @@
               <span class="settings-desc">Click a field and press a key. Backspace or Delete clears it. Button/Cue slot keys are configured from a cue button's middle-click settings.</span>
             </div>
           </div>
+
+          <!-- MIDI Controllers Tab -->
+          <div class="settings-tab-content" id="tab-controllers">
+            <div class="settings-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="midi-controller-select" class="settings-label">MIDI CONTROLLER</label>
+                  <span id="midi-controller-state" class="midi-controller-state">CHECKING...</span>
+                </div>
+                <div class="midi-device-row">
+                  <select id="midi-controller-select" class="exertia-select-mini">
+                    <option value="">No MIDI controller detected</option>
+                  </select>
+                  <button id="btn-midi-refresh" class="exertia-btn-modal" type="button">REFRESH</button>
+                </div>
+                <span class="settings-desc">Connect a controller such as the DDJ-FLX4 by USB, then select its MIDI input.</span>
+              </div>
+            </div>
+
+            <div class="settings-card midi-profile-card">
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <span class="settings-label">CONTROL MAPPING</span>
+                  <span id="midi-mapping-count" class="settings-value-display">0 MAPPED</span>
+                </div>
+                <span id="midi-profile-description" class="settings-desc">No MIDI mapping has been configured.</span>
+                <div class="midi-controller-actions">
+                  <button id="btn-midi-start-mapping" class="exertia-btn-modal btn-orange" type="button">START CONFIGURATION</button>
+                  <button id="btn-midi-clear-mapping" class="exertia-btn-modal midi-clear-button" type="button">CLEAR</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card controller-physics-card">
+              <div class="controller-physics-heading">
+                <span class="settings-label">JOG PHYSICS</span>
+              </div>
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-jog-max-speed" class="settings-label">THROW SPEED</label>
+                  <span id="jog-max-speed-display" class="settings-value-display">16×</span>
+                </div>
+                <input type="range" id="setting-jog-max-speed" min="2" max="32" step="1" value="16" class="exertia-settings-slider">
+                <span class="settings-desc">Sets the maximum vinyl speed reached when the jog wheel is spun hard.</span>
+              </div>
+              <div class="controller-physics-divider"></div>
+              <div class="settings-row flex-col">
+                <div class="flex-row-between">
+                  <label for="setting-jog-inertia" class="settings-label">INERTIA DURATION</label>
+                  <span id="jog-inertia-display" class="settings-value-display">0.70 s</span>
+                </div>
+                <input type="range" id="setting-jog-inertia" min="0" max="5" step="0.05" value="0.7" class="exertia-settings-slider">
+                <span class="settings-desc">Controls how long a released jog wheel keeps moving before returning to normal playback speed.</span>
+              </div>
+            </div>
+
+            <div class="settings-card midi-summary-card">
+              <span class="settings-label">MAPPED CONTROLS</span>
+              <div id="midi-mapping-summary" class="midi-mapping-summary">
+                <span class="settings-desc">Mapped controls will appear here.</span>
+              </div>
+            </div>
+          </div>
           
           <!-- Zoom Tab -->
           <div class="settings-tab-content" id="tab-zoom">
@@ -1118,7 +1260,7 @@
           <!-- Info Tab -->
           <div class="settings-tab-content" id="tab-info">
             <div class="settings-card">
-              <p class="tab-placeholder-text" style="margin: 0; line-height: 1.6;">notoMixer exertia Rack v1.0.0<br>Connected via Web Serial API.</p>
+              <p class="tab-placeholder-text" style="margin: 0; line-height: 1.6;">notoMixer exertia Rack v<span id="settings-app-version">1.0.0</span><br>Connected via Web Serial API.</p>
             </div>
           </div>
         </div>
@@ -1127,6 +1269,41 @@
       <div class="modal-footer">
         <button id="settings-btn-close" class="exertia-btn-modal">Close</button>
         <button id="settings-btn-save" class="exertia-btn-modal btn-orange">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MIDI Controller Mapping Wizard -->
+  <div id="midi-mapping-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="midi-mapping-title">
+    <div class="exertia-modal-content midi-mapping-content">
+      <div class="modal-header">
+        <span class="modal-title" id="midi-mapping-title">MIDI CONTROLLER SETUP</span>
+        <span id="midi-mapping-progress-text" class="midi-mapping-progress-text">1 / 1</span>
+      </div>
+      <div class="midi-mapping-progress-track">
+        <span id="midi-mapping-progress-fill"></span>
+      </div>
+      <div class="modal-body midi-mapping-body">
+        <span id="midi-mapping-group" class="midi-mapping-group">TRACK 1</span>
+        <h2 id="midi-mapping-control">VOLUME</h2>
+        <p id="midi-mapping-instruction" class="midi-mapping-instruction">Move the control to minimum, then maximum.</p>
+
+        <div class="midi-learn-monitor">
+          <div class="midi-learn-signal">
+            <span id="midi-learn-indicator"></span>
+            <strong id="midi-learn-status">WAITING FOR MIDI INPUT</strong>
+          </div>
+          <span id="midi-learn-message" class="midi-learn-message">No message detected</span>
+          <div id="midi-learn-range" class="midi-learn-range">
+            <span id="midi-learn-range-fill"></span>
+          </div>
+          <span id="midi-learn-range-text" class="midi-learn-range-text">RANGE: --</span>
+        </div>
+      </div>
+      <div class="modal-footer midi-mapping-footer">
+        <button id="btn-midi-cancel" class="exertia-btn-modal" type="button">CANCEL</button>
+        <button id="btn-midi-skip" class="exertia-btn-modal" type="button">SKIP</button>
+        <button id="btn-midi-accept" class="exertia-btn-modal btn-orange" type="button" disabled>USE DETECTED RANGE</button>
       </div>
     </div>
   </div>

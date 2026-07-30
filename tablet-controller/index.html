@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  >
+  <meta name="theme-color" content="#0b0b0f">
+  <title>notoMixer Local Controller</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="/logo.svg" alt="">
+      <div>
+        <strong>notoMixer</strong>
+        <span>LOCAL CONTROLLER</span>
+      </div>
+    </div>
+    <div class="connection-state">
+      <span id="connection-led"></span>
+      <strong id="connection-label">CONNECTING</strong>
+    </div>
+  </header>
+
+  <main class="decks">
+    <section class="deck deck-one" data-track="1">
+      <header class="deck-header">
+        <div>
+          <span class="deck-number">TRACK 1</span>
+          <strong class="track-title" id="track-title-1">NO TRACK LOADED</strong>
+        </div>
+        <div class="bpm-display">
+          <span>BPM</span>
+          <strong id="track-bpm-1">--</strong>
+        </div>
+      </header>
+
+      <div class="jog-zone">
+        <div
+          class="jog-shell"
+          id="jog-1"
+          role="slider"
+          aria-label="Track 1 jog wheel"
+          tabindex="0"
+        >
+          <div class="jog-disc">
+            <img class="jog-cover" id="jog-cover-1" src="/cover/1" alt="">
+            <span class="jog-grooves"></span>
+            <span class="jog-position"></span>
+            <span class="jog-spindle"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="transport-panel">
+        <button
+          class="transport-button transport-play"
+          id="transport-play-1"
+          type="button"
+        >PLAY</button>
+        <button
+          class="transport-button transport-stop"
+          id="transport-stop-1"
+          type="button"
+        >STOP</button>
+      </div>
+
+      <div class="cue-panel">
+        <span class="cue-panel-label">TRACK 1 · HOT CUES / SAMPLES</span>
+        <div class="cue-grid" id="cue-grid-1"></div>
+      </div>
+    </section>
+
+    <section class="deck deck-two" data-track="2">
+      <header class="deck-header">
+        <div>
+          <span class="deck-number">TRACK 2</span>
+          <strong class="track-title" id="track-title-2">NO TRACK LOADED</strong>
+        </div>
+        <div class="bpm-display">
+          <span>BPM</span>
+          <strong id="track-bpm-2">--</strong>
+        </div>
+      </header>
+
+      <div class="jog-zone">
+        <div
+          class="jog-shell"
+          id="jog-2"
+          role="slider"
+          aria-label="Track 2 jog wheel"
+          tabindex="0"
+        >
+          <div class="jog-disc">
+            <img class="jog-cover" id="jog-cover-2" src="/cover/2" alt="">
+            <span class="jog-grooves"></span>
+            <span class="jog-position"></span>
+            <span class="jog-spindle"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="transport-panel">
+        <button
+          class="transport-button transport-play"
+          id="transport-play-2"
+          type="button"
+        >PLAY</button>
+        <button
+          class="transport-button transport-stop"
+          id="transport-stop-2"
+          type="button"
+        >STOP</button>
+      </div>
+
+      <div class="cue-panel">
+        <span class="cue-panel-label">TRACK 2 · HOT CUES / SAMPLES</span>
+        <div class="cue-grid" id="cue-grid-2"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

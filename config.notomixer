@@ -1,0 +1,15 @@
+[Application Information]
+skipUpdate-request=False
+evaluation=True
+
+[Audio Settings]
+error-jingle=True
+no-audioLoaded-fallback=True
+
+[Visualizer]
+enable-spectrum=True
+
+[Debug Settings]
+legacy-mode=False
+exclusive-mode=False
+show-audiolevel=True

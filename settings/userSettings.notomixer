@@ -1,0 +1,47 @@
+[UI Layout]
+layout-mode=stacked
+explorer-layout=bottom
+explorer-height=191
+explorer-width=220
+stacked-waveform-height=247
+working-directory=C:\Users\Giorgio Gandolfo\Music
+
+[Audio Output]
+main-device=default
+preview-device=default
+
+[Music Settings]
+skip-opening-silence=true
+skip-ending-silence=true
+music-ending-warning=true
+center-snap-enabled=true
+center-snap-threshold=5
+end-sync-t1-seconds=30
+end-sync-t1-mix-enabled=true
+end-sync-t1-mix-seconds=5
+end-sync-t1-fade-in=true
+end-sync-t1-fade-out=true
+end-sync-t1-fade-seconds=3
+end-sync-t2-seconds=30
+end-sync-t2-mix-enabled=true
+end-sync-t2-mix-seconds=5
+end-sync-t2-fade-in=true
+end-sync-t2-fade-out=true
+end-sync-t2-fade-seconds=3
+
+[EQs and Sliders]
+
+[Keybinds]
+button-bindings={"auto":"KeyA","loopIn":"KeyI","loopOut":"KeyO","loopExit":"KeyX","sync":"KeyS","endSync":"KeyE","quantize":"KeyQ"}
+cue-bindings=["KeyM","","","","","","",""]
+
+[Controller Binds]
+midi-controller={}
+jog-max-speed=16
+jog-inertia-seconds=0.7
+
+[Zoom Preferences]
+text=100
+waveform=100
+buttons=100
+cover-art=100

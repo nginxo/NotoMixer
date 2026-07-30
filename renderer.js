@@ -2,6 +2,91 @@ const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { pathToFileURL } = require('url');
+const { loadNotoMixerConfig } = require('./notomixer-config');
+const {
+  hydrateUserSettings,
+  saveUserSettings
+} = require('./user-settings');
+const { version: packageVersion } = require('./package.json');
+
+const notoMixerRoot = process.env.NOTOMIXER_INSTALL_ROOT
+  ? path.resolve(process.env.NOTOMIXER_INSTALL_ROOT)
+  : process.defaultApp
+    ? __dirname
+    : path.resolve(process.resourcesPath, '..', '..');
+const notoMixerAssetsRoot = path.join(notoMixerRoot, 'assets');
+const getNotoMixerAssetUrl = (...segments) =>
+  pathToFileURL(path.join(notoMixerAssetsRoot, ...segments)).href;
+
+const headerLogo = document.querySelector('.header-logo-mark');
+if (headerLogo) {
+  headerLogo.src = getNotoMixerAssetUrl('logo.svg');
+}
+
+const notoMixerConfig = loadNotoMixerConfig(notoMixerRoot, packageVersion);
+const loadedUserSettingCount = hydrateUserSettings(notoMixerRoot, localStorage);
+
+function persistUserSettings() {
+  try {
+    return saveUserSettings(notoMixerRoot, localStorage);
+  } catch (error) {
+    console.warn('Unable to save userSettings.notomixer.', error);
+    return '';
+  }
+}
+
+if (loadedUserSettingCount === 0) {
+  persistUserSettings();
+}
+
+document.documentElement.classList.toggle(
+  'legacy-mode',
+  notoMixerConfig.legacyMode
+);
+document.documentElement.classList.toggle(
+  'exclusive-mode',
+  notoMixerConfig.exclusiveMode
+);
+document.documentElement.classList.toggle(
+  'hide-audio-levels',
+  !notoMixerConfig.showAudioLevel
+);
+document.documentElement.classList.toggle(
+  'spectrum-disabled',
+  !notoMixerConfig.enableSpectrum
+);
+document.documentElement.dataset.notomixerVersion = notoMixerConfig.version;
+
+let initialMixerCheckComplete = false;
+let initialSongCheckComplete = false;
+let evaluationNoticeShown = false;
+
+function maybeShowEvaluationNotice() {
+  if (
+    !notoMixerConfig.evaluation ||
+    evaluationNoticeShown ||
+    !initialMixerCheckComplete ||
+    !initialSongCheckComplete ||
+    document.body?.classList.contains('app-daemon-locked') ||
+    document.getElementById('connection-modal')?.classList.contains('show')
+  ) {
+    return;
+  }
+
+  const modal = document.getElementById('evaluation-modal');
+  if (!modal) return;
+  evaluationNoticeShown = true;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function hideEvaluationNotice() {
+  const modal = document.getElementById('evaluation-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
 
 // Global audio context
 let audioCtx = null;
@@ -247,7 +332,7 @@ function isKeyboardShortcutBlocked(event) {
   if (document.body.classList.contains('app-daemon-locked')) return true;
   return Boolean(
     document.querySelector(
-      '#settings-modal.show, #end-sync-modal.show, #connection-modal.show, #cue-settings-window.show'
+      '#settings-modal.show, #end-sync-modal.show, #connection-modal.show, #evaluation-modal.show, #tablet-controller-modal.show, #cue-settings-window.show, #midi-mapping-modal.show'
     )
   );
 }
@@ -348,6 +433,2005 @@ function setupKeyboardShortcuts() {
     });
     heldKeyboardCues.clear();
   });
+}
+
+const MIDI_ANALOG_CONTROL_TEMPLATES = Object.freeze([
+  { key: 'volume', label: 'Volume', element: 'vol', min: 0, max: 100, decimals: 0 },
+  { key: 'bass', label: 'Bass', element: 'bass', min: -12, max: 12, decimals: 1 },
+  { key: 'low', label: 'Lows', element: 'low', min: -12, max: 12, decimals: 1 },
+  { key: 'treb', label: 'Treble', element: 'treb', min: -12, max: 12, decimals: 1 },
+  { key: 'inst', label: 'Instrumental', element: 'inst', min: 0, max: 100, decimals: 0 },
+  { key: 'voc', label: 'Vocals', element: 'voc', min: 0, max: 100, decimals: 0 },
+  { key: 'filter', label: 'Filter', element: 'filter', min: 0, max: 100, decimals: 0 },
+  { key: 'pitch', label: 'Pitch', element: 'pitch', min: -12, max: 12, decimals: 1 },
+  { key: 'speed', label: 'Speed / Tempo', element: 'speed', min: 50, max: 200, decimals: 0 },
+  { key: 'echo', label: 'Echo', element: 'echo', min: 0, max: 100, decimals: 0 },
+  { key: 'pan', label: 'Pan', element: 'pan', min: -100, max: 100, decimals: 0 },
+  { key: 'reverb', label: 'Reverb', element: 'reverb', min: 0, max: 100, decimals: 0 },
+  { key: 'echotime', label: 'Echo Time', element: 'echotime', min: 100, max: 1000, decimals: 0 }
+]);
+
+const MIDI_BUTTON_CONTROL_TEMPLATES = Object.freeze([
+  { key: 'play', label: 'Play / Pause', button: 'btn-play' },
+  { key: 'stop', label: 'Stop', button: 'btn-stop' },
+  { key: 'autoLoop', label: 'Auto Loop', button: 'btn-auto-loop' },
+  { key: 'loopHalf', label: 'Loop Half', button: 'btn-loop-halve' },
+  { key: 'loopDouble', label: 'Loop Double', button: 'btn-loop-double' },
+  { key: 'loopIn', label: 'Loop In', button: 'btn-loop-in' },
+  { key: 'loopOut', label: 'Loop Out', button: 'btn-loop-out' },
+  { key: 'loopExit', label: 'Loop Exit', button: 'btn-loop-exit' },
+  { key: 'sync', label: 'Sync', button: 'btn-sync' },
+  { key: 'endSync', label: 'End Sync (ES)', button: 'btn-end-sync' },
+  { key: 'quantize', label: 'Quantize (Q)', button: 'btn-quantize' },
+  { key: 'tap', label: 'Tap Tempo', button: 'btn-tap' },
+  { key: 'metronome', label: 'Metronome', button: 'btn-metro' }
+]);
+
+const MIDI_CONTROL_DEFINITIONS = Object.freeze(
+  [1, 2].flatMap(trackNum => {
+    const analogControls = MIDI_ANALOG_CONTROL_TEMPLATES.map(control => ({
+      ...control,
+      id: `track${trackNum}.${control.key}`,
+      trackNum,
+      kind: 'continuous',
+      elementId: `${control.element}-${trackNum}`
+    }));
+    const buttonControls = MIDI_BUTTON_CONTROL_TEMPLATES.map(control => ({
+      ...control,
+      id: `track${trackNum}.${control.key}`,
+      trackNum,
+      kind: 'button',
+      buttonId: `${control.button}-${trackNum}`
+    }));
+    const relativeControls = [{
+      id: `track${trackNum}.jog`,
+      key: 'jog',
+      label: 'Jog Wheel',
+      trackNum,
+      kind: 'relative'
+    }];
+    const jogTouchControls = [{
+      id: `track${trackNum}.jogTouch`,
+      key: 'jogTouch',
+      label: 'Jog Touch',
+      trackNum,
+      kind: 'jogTouch'
+    }];
+    const soundButtons = Array.from({ length: 8 }, (_, index) => ({
+      id: `track${trackNum}.button${index + 1}`,
+      key: `button${index + 1}`,
+      label: `Button / Cue ${index + 1}`,
+      trackNum,
+      kind: 'button',
+      soundButtonIndex: index,
+      buttonId: `sound-btn-${trackNum}-${index}`
+    }));
+    return [
+      ...analogControls,
+      ...relativeControls,
+      ...jogTouchControls,
+      ...buttonControls,
+      ...soundButtons
+    ];
+  })
+);
+
+const MIDI_CONTROL_BY_ID = new Map(
+  MIDI_CONTROL_DEFINITIONS.map(control => [control.id, control])
+);
+const MIDI_CONFIG_STORAGE_KEY = 'notoMixer_midiControllerConfig';
+let midiAccess = null;
+let midiInitPromise = null;
+let midiSelectedInputId = '';
+let midiWizard = null;
+let midiControllerConfig = {
+  version: 1,
+  deviceId: '',
+  deviceName: '',
+  manufacturer: '',
+  mappings: {}
+};
+const midiButtonStates = new Map();
+const trackScratchSessions = new Map();
+const DEFAULT_JOG_MAX_SPEED = 16;
+const DEFAULT_JOG_INERTIA_SECONDS = 0.7;
+let jogMaxSpeed = DEFAULT_JOG_MAX_SPEED;
+let jogInertiaSeconds = DEFAULT_JOG_INERTIA_SECONDS;
+
+function clampJogMaxSpeed(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? Math.max(2, Math.min(32, numericValue))
+    : DEFAULT_JOG_MAX_SPEED;
+}
+
+function clampJogInertiaSeconds(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? Math.max(0, Math.min(5, numericValue))
+    : DEFAULT_JOG_INERTIA_SECONDS;
+}
+
+function applyJogSpeedProfile(rawVelocity) {
+  const scaledVelocity =
+    Number(rawVelocity) * (jogMaxSpeed / DEFAULT_JOG_MAX_SPEED);
+  return Math.max(
+    -jogMaxSpeed,
+    Math.min(jogMaxSpeed, scaledVelocity)
+  );
+}
+
+function loadJogPhysicsSettings() {
+  const savedMaxSpeed = localStorage.getItem('notoMixer_jogMaxSpeed');
+  const savedInertia = localStorage.getItem('notoMixer_jogInertiaSeconds');
+  jogMaxSpeed =
+    savedMaxSpeed === null
+      ? DEFAULT_JOG_MAX_SPEED
+      : clampJogMaxSpeed(savedMaxSpeed);
+  jogInertiaSeconds =
+    savedInertia === null
+      ? DEFAULT_JOG_INERTIA_SECONDS
+      : clampJogInertiaSeconds(savedInertia);
+}
+
+function populateJogPhysicsSettingsUI() {
+  const maxSpeedSlider = document.getElementById('setting-jog-max-speed');
+  const maxSpeedDisplay = document.getElementById('jog-max-speed-display');
+  const inertiaSlider = document.getElementById('setting-jog-inertia');
+  const inertiaDisplay = document.getElementById('jog-inertia-display');
+
+  if (maxSpeedSlider) maxSpeedSlider.value = String(jogMaxSpeed);
+  if (maxSpeedDisplay) {
+    maxSpeedDisplay.textContent = `${Math.round(jogMaxSpeed)}×`;
+  }
+  if (inertiaSlider) inertiaSlider.value = String(jogInertiaSeconds);
+  if (inertiaDisplay) {
+    inertiaDisplay.textContent = `${jogInertiaSeconds.toFixed(2)} s`;
+  }
+}
+
+function loadMidiControllerConfig() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MIDI_CONFIG_STORAGE_KEY) || '{}');
+    const mappings =
+      saved && typeof saved.mappings === 'object' && saved.mappings
+        ? saved.mappings
+        : {};
+    midiControllerConfig = {
+      version: 1,
+      deviceId: typeof saved.deviceId === 'string' ? saved.deviceId : '',
+      deviceName: typeof saved.deviceName === 'string' ? saved.deviceName : '',
+      manufacturer:
+        typeof saved.manufacturer === 'string' ? saved.manufacturer : '',
+      mappings
+    };
+    midiSelectedInputId = midiControllerConfig.deviceId;
+  } catch (error) {
+    midiControllerConfig = {
+      version: 1,
+      deviceId: '',
+      deviceName: '',
+      manufacturer: '',
+      mappings: {}
+    };
+  }
+}
+
+function saveMidiControllerConfig() {
+  localStorage.setItem(
+    MIDI_CONFIG_STORAGE_KEY,
+    JSON.stringify(midiControllerConfig)
+  );
+  persistUserSettings();
+}
+
+function getMidiInputs() {
+  return midiAccess ? Array.from(midiAccess.inputs.values()) : [];
+}
+
+function getMidiInputFromSelection() {
+  return getMidiInputs().find(input => input.id === midiSelectedInputId) || null;
+}
+
+function midiInputMatchesConfig(input) {
+  if (!input || !midiControllerConfig) return false;
+  if (
+    midiControllerConfig.deviceId &&
+    input.id === midiControllerConfig.deviceId
+  ) {
+    return true;
+  }
+  return Boolean(
+    midiControllerConfig.deviceName &&
+    input.name === midiControllerConfig.deviceName &&
+    (input.manufacturer || '') === (midiControllerConfig.manufacturer || '')
+  );
+}
+
+function bindMidiInputs() {
+  getMidiInputs().forEach(input => {
+    input.onmidimessage = handleMidiMessage;
+  });
+}
+
+async function initMidiControllers({ forceRefresh = false } = {}) {
+  if (!navigator.requestMIDIAccess) {
+    refreshMidiControllerUI('unsupported');
+    return null;
+  }
+  if (midiAccess && !forceRefresh) {
+    bindMidiInputs();
+    refreshMidiControllerUI();
+    return midiAccess;
+  }
+  if (midiInitPromise && !forceRefresh) return midiInitPromise;
+
+  midiInitPromise = navigator
+    .requestMIDIAccess({ sysex: false })
+    .then(access => {
+      midiAccess = access;
+      midiAccess.onstatechange = () => {
+        bindMidiInputs();
+        refreshMidiControllerUI();
+      };
+      bindMidiInputs();
+      refreshMidiControllerUI();
+      return midiAccess;
+    })
+    .catch(error => {
+      console.error('MIDI access failed:', error);
+      refreshMidiControllerUI('error');
+      return null;
+    })
+    .finally(() => {
+      midiInitPromise = null;
+    });
+  return midiInitPromise;
+}
+
+function formatMidiDeviceName(input) {
+  const manufacturer = (input.manufacturer || '').trim();
+  const name = (input.name || 'MIDI Controller').trim();
+  if (!manufacturer || name.toLowerCase().includes(manufacturer.toLowerCase())) {
+    return name;
+  }
+  return `${manufacturer} ${name}`;
+}
+
+function formatMidiMapping(mapping) {
+  if (!mapping) return '';
+  const type =
+    mapping.type === 'cc'
+      ? `CC ${mapping.number}`
+      : mapping.type === 'note'
+        ? `NOTE ${mapping.number}`
+        : 'PITCH BEND';
+  const channel = `CH ${Number(mapping.channel) + 1}`;
+  if (mapping.kind === 'continuous') {
+    const direction = mapping.invert ? ' · INV' : '';
+    return `${type} · ${channel} · ${mapping.inputMin}–${mapping.inputMax}${direction}`;
+  }
+  if (mapping.kind === 'relative') {
+    const direction = mapping.invert ? ' · INV' : '';
+    return `${type} · ${channel} · RELATIVE${direction}`;
+  }
+  return `${type} · ${channel}`;
+}
+
+function refreshMidiControllerUI(forcedState = '') {
+  const select = document.getElementById('midi-controller-select');
+  const state = document.getElementById('midi-controller-state');
+  const startButton = document.getElementById('btn-midi-start-mapping');
+  const clearButton = document.getElementById('btn-midi-clear-mapping');
+  const mappingCount = document.getElementById('midi-mapping-count');
+  const description = document.getElementById('midi-profile-description');
+  const summary = document.getElementById('midi-mapping-summary');
+  if (!select || !state) return;
+
+  const inputs = getMidiInputs().filter(input => input.state !== 'disconnected');
+  const previousSelection = select.value || midiSelectedInputId;
+  select.innerHTML = '';
+
+  if (!inputs.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent =
+      forcedState === 'unsupported'
+        ? 'Web MIDI is not available'
+        : 'No MIDI controller detected';
+    select.appendChild(option);
+    midiSelectedInputId = '';
+  } else {
+    inputs.forEach(input => {
+      const option = document.createElement('option');
+      option.value = input.id;
+      option.textContent = formatMidiDeviceName(input);
+      select.appendChild(option);
+    });
+
+    const configuredInput = inputs.find(midiInputMatchesConfig);
+    const preferredInput =
+      inputs.find(input => input.id === previousSelection) ||
+      configuredInput ||
+      inputs[0];
+    select.value = preferredInput.id;
+    midiSelectedInputId = preferredInput.id;
+  }
+
+  state.classList.remove('connected', 'error');
+  if (forcedState === 'unsupported' || forcedState === 'error') {
+    state.textContent =
+      forcedState === 'unsupported' ? 'UNSUPPORTED' : 'ACCESS ERROR';
+    state.classList.add('error');
+  } else if (inputs.length) {
+    state.textContent = `${inputs.length} CONNECTED`;
+    state.classList.add('connected');
+  } else {
+    state.textContent = midiAccess ? 'NOT CONNECTED' : 'CHECKING...';
+  }
+
+  const mappedEntries = Object.entries(midiControllerConfig.mappings).filter(
+    ([controlId, mapping]) => MIDI_CONTROL_BY_ID.has(controlId) && mapping
+  );
+  if (mappingCount) {
+    mappingCount.textContent = `${mappedEntries.length} MAPPED`;
+  }
+  if (description) {
+    description.textContent = mappedEntries.length
+      ? `${midiControllerConfig.deviceName || 'MIDI controller'} profile is active. Start configuration to replace it.`
+      : 'No MIDI mapping has been configured.';
+  }
+  if (summary) {
+    summary.innerHTML = '';
+    if (!mappedEntries.length) {
+      const empty = document.createElement('span');
+      empty.className = 'settings-desc';
+      empty.textContent = 'Mapped controls will appear here.';
+      summary.appendChild(empty);
+    } else {
+      mappedEntries.forEach(([controlId, mapping]) => {
+        const definition = MIDI_CONTROL_BY_ID.get(controlId);
+        const chip = document.createElement('span');
+        chip.className = 'midi-mapping-chip';
+        chip.textContent = `T${definition.trackNum} ${definition.label}`;
+        chip.title = formatMidiMapping(mapping);
+        summary.appendChild(chip);
+      });
+    }
+  }
+
+  if (startButton) startButton.disabled = !inputs.length;
+  if (clearButton) clearButton.disabled = !mappedEntries.length;
+}
+
+function setupMidiControllerUI() {
+  const select = document.getElementById('midi-controller-select');
+  const refreshButton = document.getElementById('btn-midi-refresh');
+  const startButton = document.getElementById('btn-midi-start-mapping');
+  const clearButton = document.getElementById('btn-midi-clear-mapping');
+  const cancelButton = document.getElementById('btn-midi-cancel');
+  const skipButton = document.getElementById('btn-midi-skip');
+  const acceptButton = document.getElementById('btn-midi-accept');
+
+  if (select) {
+    select.addEventListener('change', () => {
+      midiSelectedInputId = select.value;
+    });
+  }
+  if (refreshButton) {
+    refreshButton.addEventListener('click', () => {
+      initMidiControllers({ forceRefresh: true });
+    });
+  }
+  if (startButton) {
+    startButton.addEventListener('click', async () => {
+      await initMidiControllers();
+      startMidiMappingWizard();
+    });
+  }
+  if (clearButton) {
+    clearButton.addEventListener('click', () => {
+      if (
+        !window.confirm(
+          'Clear the saved MIDI controller mapping? This does not change keyboard shortcuts.'
+        )
+      ) {
+        return;
+      }
+      midiControllerConfig = {
+        version: 1,
+        deviceId: '',
+        deviceName: '',
+        manufacturer: '',
+        mappings: {}
+      };
+      midiButtonStates.clear();
+      saveMidiControllerConfig();
+      refreshMidiControllerUI();
+      logConsole('MIDI: Controller mapping cleared', 'system');
+    });
+  }
+  if (cancelButton) {
+    cancelButton.addEventListener('click', cancelMidiMappingWizard);
+  }
+  if (skipButton) {
+    skipButton.addEventListener('click', skipMidiMappingStep);
+  }
+  if (acceptButton) {
+    acceptButton.addEventListener('click', finalizeMidiContinuousCandidate);
+  }
+
+  document.addEventListener('keydown', event => {
+    const modal = document.getElementById('midi-mapping-modal');
+    if (
+      event.key === 'Escape' &&
+      modal &&
+      modal.classList.contains('show')
+    ) {
+      event.preventDefault();
+      cancelMidiMappingWizard();
+    }
+  });
+}
+
+function startMidiMappingWizard() {
+  const input = getMidiInputFromSelection();
+  if (!input) {
+    refreshMidiControllerUI(midiAccess ? '' : 'error');
+    return;
+  }
+
+  midiWizard = {
+    inputId: input.id,
+    deviceName: input.name || 'MIDI Controller',
+    manufacturer: input.manufacturer || '',
+    index: 0,
+    draftMappings: {},
+    candidate: null,
+    autoAcceptTimer: null,
+    stepLocked: false
+  };
+  const modal = document.getElementById('midi-mapping-modal');
+  if (modal) modal.classList.add('show');
+  renderMidiMappingStep();
+}
+
+function clearMidiWizardTimer() {
+  if (midiWizard && midiWizard.autoAcceptTimer) {
+    clearTimeout(midiWizard.autoAcceptTimer);
+    midiWizard.autoAcceptTimer = null;
+  }
+}
+
+function renderMidiMappingStep() {
+  if (!midiWizard) return;
+  if (midiWizard.index >= MIDI_CONTROL_DEFINITIONS.length) {
+    completeMidiMappingWizard();
+    return;
+  }
+
+  clearMidiWizardTimer();
+  midiWizard.candidate = null;
+  midiWizard.stepLocked = false;
+  const definition = MIDI_CONTROL_DEFINITIONS[midiWizard.index];
+  const isContinuous = definition.kind === 'continuous';
+  const isRelative = definition.kind === 'relative';
+  const isJogTouch = definition.kind === 'jogTouch';
+  const total = MIDI_CONTROL_DEFINITIONS.length;
+  const progress = ((midiWizard.index + 1) / total) * 100;
+
+  const progressText = document.getElementById('midi-mapping-progress-text');
+  const progressFill = document.getElementById('midi-mapping-progress-fill');
+  const group = document.getElementById('midi-mapping-group');
+  const control = document.getElementById('midi-mapping-control');
+  const instruction = document.getElementById('midi-mapping-instruction');
+  const status = document.getElementById('midi-learn-status');
+  const message = document.getElementById('midi-learn-message');
+  const range = document.getElementById('midi-learn-range');
+  const rangeFill = document.getElementById('midi-learn-range-fill');
+  const rangeText = document.getElementById('midi-learn-range-text');
+  const indicator = document.getElementById('midi-learn-indicator');
+  const acceptButton = document.getElementById('btn-midi-accept');
+
+  if (progressText) progressText.textContent = `${midiWizard.index + 1} / ${total}`;
+  if (progressFill) progressFill.style.width = `${progress}%`;
+  if (group) group.textContent = `TRACK ${definition.trackNum}`;
+  if (control) control.textContent = definition.label.toUpperCase();
+  if (instruction) {
+    if (isContinuous) {
+      instruction.textContent =
+        'Move the physical control to minimum, then maximum. Finish at maximum.';
+    } else if (isRelative) {
+      instruction.textContent =
+        'Turn the jog backward first, then forward. Both directions are detected automatically.';
+    } else if (isJogTouch) {
+      instruction.textContent =
+        'Press the top of the jog wheel. Holding it will stop the track like vinyl.';
+    } else {
+      instruction.textContent = 'Press the physical button you want to assign.';
+    }
+  }
+  if (status) status.textContent = 'WAITING FOR MIDI INPUT';
+  if (message) message.textContent = 'No message detected';
+  if (range) range.classList.toggle('hidden', !isContinuous && !isRelative);
+  if (rangeFill) rangeFill.style.width = '0%';
+  if (rangeText) {
+    rangeText.classList.toggle('hidden', !isContinuous && !isRelative);
+    rangeText.textContent = isRelative
+      ? 'BACKWARD: WAITING · FORWARD: WAITING'
+      : 'RANGE: --';
+  }
+  if (indicator) indicator.classList.remove('received');
+  if (acceptButton) {
+    acceptButton.disabled = true;
+    acceptButton.style.visibility = isContinuous ? 'visible' : 'hidden';
+  }
+}
+
+function skipMidiMappingStep() {
+  if (!midiWizard || midiWizard.stepLocked) return;
+  clearMidiWizardTimer();
+  const definition = MIDI_CONTROL_DEFINITIONS[midiWizard.index];
+  delete midiWizard.draftMappings[definition.id];
+  midiWizard.index += 1;
+  renderMidiMappingStep();
+}
+
+function cancelMidiMappingWizard() {
+  if (!midiWizard) return;
+  clearMidiWizardTimer();
+  midiWizard = null;
+  const modal = document.getElementById('midi-mapping-modal');
+  if (modal) modal.classList.remove('show');
+  refreshMidiControllerUI();
+  logConsole('MIDI: Controller configuration cancelled', 'system');
+}
+
+function completeMidiMappingWizard() {
+  if (!midiWizard) return;
+  clearMidiWizardTimer();
+  midiControllerConfig = {
+    version: 1,
+    deviceId: midiWizard.inputId,
+    deviceName: midiWizard.deviceName,
+    manufacturer: midiWizard.manufacturer,
+    mappings: midiWizard.draftMappings
+  };
+  midiSelectedInputId = midiWizard.inputId;
+  midiButtonStates.clear();
+  saveMidiControllerConfig();
+  const mappedCount = Object.keys(midiWizard.draftMappings).length;
+  midiWizard = null;
+  const modal = document.getElementById('midi-mapping-modal');
+  if (modal) modal.classList.remove('show');
+  refreshMidiControllerUI();
+  logConsole(
+    `MIDI: Controller configured with ${mappedCount} mapped controls`,
+    'system'
+  );
+}
+
+function parseMidiMessage(data) {
+  if (!data || data.length < 1) return null;
+  const status = data[0];
+  const command = status & 0xf0;
+  const channel = status & 0x0f;
+  const number = Number(data[1] || 0);
+  const value = Number(data[2] || 0);
+
+  if (command === 0xb0) {
+    return { type: 'cc', channel, number, value, valueMax: 127 };
+  }
+  if (command === 0x90) {
+    return {
+      type: 'note',
+      channel,
+      number,
+      value,
+      valueMax: 127,
+      active: value > 0
+    };
+  }
+  if (command === 0x80) {
+    return {
+      type: 'note',
+      channel,
+      number,
+      value: 0,
+      valueMax: 127,
+      active: false
+    };
+  }
+  if (command === 0xe0) {
+    return {
+      type: 'pitchbend',
+      channel,
+      number: 0,
+      value: number | (value << 7),
+      valueMax: 16383
+    };
+  }
+  return null;
+}
+
+function getMidiMessageSignature(message) {
+  return `${message.type}:${message.channel}:${message.number}`;
+}
+
+function midiMappingMatchesMessage(mapping, message) {
+  return Boolean(
+    mapping &&
+    message &&
+    mapping.type === message.type &&
+    Number(mapping.channel) === message.channel &&
+    Number(mapping.number) === message.number
+  );
+}
+
+function describeMidiMessage(message) {
+  const type =
+    message.type === 'cc'
+      ? `CC ${message.number}`
+      : message.type === 'note'
+        ? `NOTE ${message.number}`
+        : 'PITCH BEND';
+  return `${type} · CH ${message.channel + 1} · VALUE ${message.value}`;
+}
+
+function flashMidiLearnIndicator() {
+  const indicator = document.getElementById('midi-learn-indicator');
+  if (!indicator) return;
+  indicator.classList.add('received');
+  clearTimeout(indicator._midiFlashTimer);
+  indicator._midiFlashTimer = setTimeout(() => {
+    indicator.classList.remove('received');
+  }, 120);
+}
+
+function findMidiDraftConflict(mapping, currentControlId) {
+  if (!midiWizard) return '';
+  const signature = getMidiMessageSignature(mapping);
+  for (const [controlId, existing] of Object.entries(
+    midiWizard.draftMappings
+  )) {
+    if (
+      controlId !== currentControlId &&
+      getMidiMessageSignature(existing) === signature
+    ) {
+      return MIDI_CONTROL_BY_ID.get(controlId)?.label || controlId;
+    }
+  }
+  return '';
+}
+
+function showMidiLearnConflict(conflictLabel) {
+  if (!midiWizard) return;
+  clearMidiWizardTimer();
+  midiWizard.candidate = null;
+  const status = document.getElementById('midi-learn-status');
+  const message = document.getElementById('midi-learn-message');
+  const acceptButton = document.getElementById('btn-midi-accept');
+  if (status) status.textContent = 'INPUT ALREADY MAPPED';
+  if (message) message.textContent = `Already used by ${conflictLabel}. Move another control or Skip.`;
+  if (acceptButton) acceptButton.disabled = true;
+}
+
+function detectMidiRelativeMode(value) {
+  if (value >= 32 && value <= 96) return 'offset64';
+  return 'twosComplement';
+}
+
+function decodeMidiRelativeDelta(value, mode) {
+  if (mode === 'twosComplement') {
+    if (value === 0 || value === 64) return 0;
+    return value <= 63 ? value : value - 128;
+  }
+  return value - 64;
+}
+
+function handleMidiRelativeLearnMessage(definition, message) {
+  if (!midiWizard || message.type !== 'cc') return;
+  const signature = getMidiMessageSignature(message);
+
+  if (
+    !midiWizard.candidate ||
+    midiWizard.candidate.signature !== signature
+  ) {
+    midiWizard.candidate = {
+      signature,
+      type: message.type,
+      channel: message.channel,
+      number: message.number,
+      relativeMode: detectMidiRelativeMode(message.value),
+      backwardSign: 0,
+      backwardCount: 0,
+      forwardSign: 0,
+      forwardCount: 0
+    };
+  }
+
+  const candidate = midiWizard.candidate;
+  const delta = decodeMidiRelativeDelta(
+    message.value,
+    candidate.relativeMode
+  );
+  if (delta === 0) return;
+  const directionSign = Math.sign(delta);
+
+  if (!candidate.backwardSign) {
+    candidate.backwardSign = directionSign;
+    candidate.backwardCount = 1;
+  } else if (
+    !candidate.forwardSign &&
+    directionSign === candidate.backwardSign
+  ) {
+    candidate.backwardCount += 1;
+  } else if (
+    candidate.backwardCount >= 2 &&
+    directionSign !== candidate.backwardSign
+  ) {
+    candidate.forwardSign = directionSign;
+    candidate.forwardCount += 1;
+  }
+
+  const status = document.getElementById('midi-learn-status');
+  const rangeFill = document.getElementById('midi-learn-range-fill');
+  const rangeText = document.getElementById('midi-learn-range-text');
+  const backwardReady = candidate.backwardCount >= 2;
+  const forwardReady = candidate.forwardCount >= 2;
+  if (status) {
+    status.textContent = forwardReady
+      ? 'JOG DIRECTIONS DETECTED'
+      : backwardReady
+        ? 'BACKWARD DETECTED · NOW TURN FORWARD'
+        : 'JOG DETECTED · KEEP TURNING BACKWARD';
+  }
+  if (rangeFill) {
+    rangeFill.style.width = forwardReady ? '100%' : backwardReady ? '50%' : '20%';
+  }
+  if (rangeText) {
+    rangeText.textContent =
+      `BACKWARD: ${backwardReady ? 'OK' : 'WAITING'} · ` +
+      `FORWARD: ${forwardReady ? 'OK' : 'WAITING'}`;
+  }
+  if (!forwardReady) return;
+
+  const mapping = {
+    kind: 'relative',
+    type: candidate.type,
+    channel: candidate.channel,
+    number: candidate.number,
+    relativeMode: candidate.relativeMode,
+    invert: candidate.forwardSign < 0,
+    secondsPerStep: 0.0125
+  };
+  const conflict = findMidiDraftConflict(mapping, definition.id);
+  if (conflict) {
+    showMidiLearnConflict(conflict);
+    return;
+  }
+
+  midiWizard.draftMappings[definition.id] = mapping;
+  midiWizard.stepLocked = true;
+  setTimeout(() => {
+    if (!midiWizard) return;
+    midiWizard.index += 1;
+    renderMidiMappingStep();
+  }, 220);
+}
+
+function handleMidiWizardMessage(message) {
+  if (!midiWizard || midiWizard.stepLocked) return;
+  const definition = MIDI_CONTROL_DEFINITIONS[midiWizard.index];
+  if (!definition) return;
+
+  flashMidiLearnIndicator();
+  const messageElement = document.getElementById('midi-learn-message');
+  if (messageElement) messageElement.textContent = describeMidiMessage(message);
+
+  if (definition.kind === 'relative') {
+    handleMidiRelativeLearnMessage(definition, message);
+    return;
+  }
+
+  if (definition.kind === 'continuous') {
+    if (message.type !== 'cc' && message.type !== 'pitchbend') return;
+    const signature = getMidiMessageSignature(message);
+    if (
+      !midiWizard.candidate ||
+      midiWizard.candidate.signature !== signature
+    ) {
+      midiWizard.candidate = {
+        signature,
+        type: message.type,
+        channel: message.channel,
+        number: message.number,
+        valueMax: message.valueMax,
+        inputMin: message.value,
+        inputMax: message.value,
+        firstValue: message.value,
+        lastValue: message.value
+      };
+    } else {
+      midiWizard.candidate.inputMin = Math.min(
+        midiWizard.candidate.inputMin,
+        message.value
+      );
+      midiWizard.candidate.inputMax = Math.max(
+        midiWizard.candidate.inputMax,
+        message.value
+      );
+      midiWizard.candidate.lastValue = message.value;
+    }
+
+    const candidate = midiWizard.candidate;
+    const detectedRange = candidate.inputMax - candidate.inputMin;
+    const rangeRatio = detectedRange / candidate.valueMax;
+    const status = document.getElementById('midi-learn-status');
+    const rangeFill = document.getElementById('midi-learn-range-fill');
+    const rangeText = document.getElementById('midi-learn-range-text');
+    const acceptButton = document.getElementById('btn-midi-accept');
+    if (status) {
+      status.textContent =
+        rangeRatio >= 0.78
+          ? 'FULL RANGE DETECTED'
+          : 'DETECTED · MOVE THROUGH FULL RANGE';
+    }
+    if (rangeFill) {
+      rangeFill.style.width = `${Math.min(100, rangeRatio * 100)}%`;
+    }
+    if (rangeText) {
+      rangeText.textContent = `RANGE: ${candidate.inputMin} – ${candidate.inputMax}`;
+    }
+    if (acceptButton) {
+      acceptButton.disabled = detectedRange < Math.max(4, candidate.valueMax * 0.05);
+    }
+
+    clearMidiWizardTimer();
+    if (rangeRatio >= 0.78) {
+      midiWizard.autoAcceptTimer = setTimeout(
+        finalizeMidiContinuousCandidate,
+        450
+      );
+    }
+    return;
+  }
+
+  if (
+    (message.type !== 'note' && message.type !== 'cc') ||
+    (message.type === 'note' && !message.active) ||
+    (message.type === 'cc' && message.value === 0)
+  ) {
+    return;
+  }
+
+  const mapping = {
+    kind: 'button',
+    type: message.type,
+    channel: message.channel,
+    number: message.number,
+    activeThreshold:
+      message.type === 'note'
+        ? 1
+        : message.value >= 64
+          ? 64
+          : Math.max(1, Math.floor(message.value / 2))
+  };
+  const conflict = findMidiDraftConflict(mapping, definition.id);
+  if (conflict) {
+    showMidiLearnConflict(conflict);
+    return;
+  }
+
+  midiWizard.draftMappings[definition.id] = mapping;
+  midiWizard.stepLocked = true;
+  const status = document.getElementById('midi-learn-status');
+  if (status) status.textContent = 'BUTTON MAPPED';
+  setTimeout(() => {
+    if (!midiWizard) return;
+    midiWizard.index += 1;
+    renderMidiMappingStep();
+  }, 180);
+}
+
+function finalizeMidiContinuousCandidate() {
+  if (
+    !midiWizard ||
+    midiWizard.stepLocked ||
+    !midiWizard.candidate
+  ) {
+    return;
+  }
+  const candidate = midiWizard.candidate;
+  if (candidate.inputMax - candidate.inputMin < 1) return;
+  const definition = MIDI_CONTROL_DEFINITIONS[midiWizard.index];
+  const distanceToMin = Math.abs(candidate.lastValue - candidate.inputMin);
+  const distanceToMax = Math.abs(candidate.lastValue - candidate.inputMax);
+  const mapping = {
+    kind: 'continuous',
+    type: candidate.type,
+    channel: candidate.channel,
+    number: candidate.number,
+    inputMin: candidate.inputMin,
+    inputMax: candidate.inputMax,
+    invert: distanceToMin < distanceToMax
+  };
+  const conflict = findMidiDraftConflict(mapping, definition.id);
+  if (conflict) {
+    showMidiLearnConflict(conflict);
+    return;
+  }
+
+  midiWizard.draftMappings[definition.id] = mapping;
+  midiWizard.stepLocked = true;
+  clearMidiWizardTimer();
+  const status = document.getElementById('midi-learn-status');
+  if (status) status.textContent = 'RANGE MAPPED';
+  setTimeout(() => {
+    if (!midiWizard) return;
+    midiWizard.index += 1;
+    renderMidiMappingStep();
+  }, 180);
+}
+
+function applyMidiContinuousControl(definition, mapping, messageValue) {
+  const inputSpan = mapping.inputMax - mapping.inputMin;
+  if (inputSpan <= 0) return;
+  let normalized = (messageValue - mapping.inputMin) / inputSpan;
+  normalized = Math.max(0, Math.min(1, normalized));
+  if (mapping.invert) normalized = 1 - normalized;
+  let value =
+    definition.min + normalized * (definition.max - definition.min);
+  const decimalScale = Math.pow(10, definition.decimals || 0);
+  value = Math.round(value * decimalScale) / decimalScale;
+
+  if (definition.key === 'volume') {
+    setVolume(definition.trackNum, value);
+    return;
+  }
+
+  const input = document.getElementById(definition.elementId);
+  if (!input) return;
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function triggerMidiButtonControl(definition) {
+  const button = document.getElementById(definition.buttonId);
+  if (!button || button.disabled) return;
+
+  if (Number.isInteger(definition.soundButtonIndex)) {
+    const cueIndex = definition.soundButtonIndex;
+    const track = tracks[definition.trackNum];
+    const isHotCue = Number.isFinite(track.hotCues[cueIndex]);
+    const cueMode = track.cueModes[cueIndex] || 'play';
+    if (isHotCue && cueMode === 'play') {
+      button.click();
+    } else {
+      button.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, button: 0 })
+      );
+    }
+    return;
+  }
+
+  button.click();
+}
+
+function releaseMidiButtonControl(definition) {
+  if (!Number.isInteger(definition.soundButtonIndex)) return;
+  const button = document.getElementById(definition.buttonId);
+  if (!button) return;
+  button.dispatchEvent(
+    new MouseEvent('mouseup', { bubbles: true, button: 0 })
+  );
+}
+
+function applyMidiJogControl(definition, mapping, messageValue) {
+  let relativeDelta = decodeMidiRelativeDelta(
+    messageValue,
+    mapping.relativeMode
+  );
+  if (mapping.invert) relativeDelta *= -1;
+  if (relativeDelta === 0) return;
+
+  const secondsPerStep = Number(mapping.secondsPerStep) || 0.0125;
+  const timeDelta = Math.max(
+    -1.5,
+    Math.min(1.5, relativeDelta * secondsPerStep)
+  );
+  moveTrackScratch(definition.trackNum, timeDelta, { autoRelease: true });
+}
+
+function getTrackScratchStems(trackNum) {
+  const track = tracks[trackNum];
+  if (!track || track.isSynth) return [];
+
+  const stems = [];
+  if (track.stems.main.exists && track.stems.main.audio) {
+    stems.push({
+      stem: track.stems.main,
+      gainNode: track.stems.main.gainNode
+    });
+  }
+  if (track.stems.vocals.exists && track.stems.vocals.audio) {
+    stems.push({
+      stem: track.stems.vocals,
+      gainNode: track.stems.vocals.gainNode
+    });
+  }
+  track.stems.inst.audios.forEach(item => {
+    if (item.audio) {
+      stems.push({
+        stem: item,
+        gainNode: track.stems.inst.gainNode
+      });
+    }
+  });
+  return stems;
+}
+
+function resolveTrackTimeWithinActiveLoop(
+  trackNum,
+  requestedTime,
+  duration = Number.POSITIVE_INFINITY
+) {
+  const track = tracks[trackNum];
+  const finiteDuration =
+    Number.isFinite(duration) && duration > 0
+      ? duration
+      : Number.POSITIVE_INFINITY;
+  const clampToTrack = time => Math.max(0, Math.min(finiteDuration, time));
+  const numericTime = Number(requestedTime);
+  const safeRequestedTime = Number.isFinite(numericTime) ? numericTime : 0;
+
+  if (
+    !track?.loopEnabled ||
+    !Number.isFinite(track.loopStartTime) ||
+    !Number.isFinite(track.loopEndTime)
+  ) {
+    return {
+      time: clampToTrack(safeRequestedTime),
+      wrapped: false
+    };
+  }
+
+  const loopStart = clampToTrack(track.loopStartTime);
+  const loopEnd = clampToTrack(track.loopEndTime);
+  const loopDuration = loopEnd - loopStart;
+  if (loopDuration <= 0.001) {
+    return {
+      time: clampToTrack(safeRequestedTime),
+      wrapped: false
+    };
+  }
+
+  const wrapped = safeRequestedTime < loopStart || safeRequestedTime >= loopEnd;
+  if (!wrapped) {
+    return {
+      time: safeRequestedTime,
+      wrapped: false
+    };
+  }
+
+  const loopOffset =
+    ((safeRequestedTime - loopStart) % loopDuration + loopDuration) % loopDuration;
+  return {
+    time: loopStart + loopOffset,
+    wrapped: true
+  };
+}
+
+function updateTrackScratchSourceClock(
+  session,
+  now = audioCtx?.currentTime
+) {
+  if (
+    !session ||
+    !Number.isFinite(now) ||
+    !Number.isFinite(session.sourceClockAudioTime)
+  ) {
+    return session?.sourceClockMediaTime ?? session?.currentTime ?? 0;
+  }
+
+  const elapsed = Math.max(0, now - session.sourceClockAudioTime);
+  const refAudio = session.stems[0]?.stem.audio;
+  const maxTime =
+    refAudio && Number.isFinite(refAudio.duration)
+      ? Math.max(0, refAudio.duration - 0.02)
+      : Number.POSITIVE_INFINITY;
+  const nextPosition = resolveTrackTimeWithinActiveLoop(
+    session.trackNum,
+    session.sourceClockMediaTime +
+      session.sourceClockVelocity * elapsed,
+    maxTime
+  );
+  session.sourceClockMediaTime = nextPosition.time;
+  session.sourceClockAudioTime = now;
+  return session.sourceClockMediaTime;
+}
+
+function stopTrackScratchSources(session, fadeSeconds = 0) {
+  if (!session) return;
+  if (session.sources.length > 0 && audioCtx) {
+    updateTrackScratchSourceClock(session, audioCtx.currentTime);
+  }
+  const sources = session.sources.splice(0);
+  session.direction = null;
+  session.sourceClockVelocity = 0;
+  session.sourceClockAudioTime = null;
+
+  sources.forEach(item => {
+    const disconnect = () => {
+      try {
+        item.source.stop();
+      } catch (error) {}
+      try {
+        item.source.disconnect();
+        item.gain.disconnect();
+      } catch (error) {}
+    };
+
+    if (fadeSeconds > 0 && audioCtx) {
+      try {
+        const now = audioCtx.currentTime;
+        item.gain.gain.cancelScheduledValues(now);
+        item.gain.gain.setValueAtTime(
+          Number.isFinite(item.gain.gain.value) ? item.gain.gain.value : 1,
+          now
+        );
+        item.gain.gain.linearRampToValueAtTime(0, now + fadeSeconds);
+        setTimeout(disconnect, fadeSeconds * 1000 + 20);
+        return;
+      } catch (error) {}
+    }
+    disconnect();
+  });
+}
+
+function startTrackScratch(trackNum, { explicitHold = false } = {}) {
+  const existingSession = trackScratchSessions.get(trackNum);
+  if (existingSession) {
+    cancelTrackScratchHandoffPrime(existingSession);
+    if (existingSession.physicsFrame) {
+      cancelAnimationFrame(existingSession.physicsFrame);
+      existingSession.physicsFrame = null;
+    }
+    existingSession.coasting = false;
+    if (explicitHold) existingSession.explicitHold = true;
+    clearTimeout(existingSession.autoReleaseTimer);
+    existingSession.autoReleaseTimer = null;
+    return true;
+  }
+
+  const track = tracks[trackNum];
+  if (!track || track.isSynth) return false;
+  initAudio(trackNum);
+
+  const stems = getTrackScratchStems(trackNum);
+  const refAudio = stems[0]?.stem.audio;
+  if (
+    !refAudio ||
+    !Number.isFinite(refAudio.duration) ||
+    refAudio.duration <= 0
+  ) {
+    return false;
+  }
+
+  if (audioCtx?.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+
+  const initialPosition = resolveTrackTimeWithinActiveLoop(
+    trackNum,
+    refAudio.currentTime,
+    Math.max(0, refAudio.duration - 0.02)
+  );
+  const session = {
+    trackNum,
+    stems,
+    wasPlaying: track.isPlaying,
+    explicitHold,
+    currentTime: initialPosition.time,
+    lastMoveAt: performance.now(),
+    velocity: 0,
+    direction: null,
+    sources: [],
+    sourceIdleTimer: null,
+    autoReleaseTimer: null,
+    coasting: false,
+    physicsFrame: null,
+    lastPhysicsAt: 0,
+    coastStartedAt: 0,
+    coastStartVelocity: 0,
+    sourceClockAudioTime: null,
+    sourceClockMediaTime: initialPosition.time,
+    sourceClockVelocity: 0,
+    handoffPrimed: false
+  };
+
+  stems.forEach(({ stem }) => stem.audio.pause());
+  trackScratchSessions.set(trackNum, session);
+  if (initialPosition.wrapped) {
+    setTrackMediaTime(trackNum, session.currentTime);
+  }
+  cancelTrackWaveformReset(trackNum);
+  handleTrackProgress(trackNum, true);
+  return true;
+}
+
+function startTrackScratchSources(session, targetRate) {
+  if (!session.wasPlaying || !audioCtx) return;
+  const isForward = targetRate >= 0;
+  const absRate = Math.max(0.01, Math.abs(targetRate));
+  const mustRestart =
+    session.direction === null ||
+    session.direction !== isForward ||
+    session.sources.length === 0;
+
+  if (mustRestart) {
+    stopTrackScratchSources(session);
+    session.direction = isForward;
+    session.sourceClockAudioTime = audioCtx.currentTime;
+    session.sourceClockMediaTime = session.currentTime;
+    session.sourceClockVelocity = targetRate;
+
+    session.stems.forEach(({ stem, gainNode }) => {
+      const buffer = isForward ? stem.buffer : stem.reversedBuffer;
+      if (!buffer || !gainNode) return;
+
+      try {
+        const source = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        source.buffer = buffer;
+        source.loop = false;
+        source.connect(gain);
+        gain.connect(gainNode);
+
+        const rawOffset = isForward
+          ? session.currentTime
+          : buffer.duration - session.currentTime;
+        const maxOffset = Math.max(0, buffer.duration - 0.001);
+        const offset = Math.max(0, Math.min(maxOffset, rawOffset));
+        source.playbackRate.setValueAtTime(absRate, audioCtx.currentTime);
+        source.start(0, offset);
+
+        const sourceEntry = { source, gain, stem };
+        source.onended = () => {
+          const index = session.sources.indexOf(sourceEntry);
+          if (index >= 0) session.sources.splice(index, 1);
+        };
+        session.sources.push(sourceEntry);
+      } catch (error) {}
+    });
+    return;
+  }
+
+  const now = audioCtx.currentTime;
+  updateTrackScratchSourceClock(session, now);
+  session.sourceClockVelocity = targetRate;
+  session.sources.forEach(item => {
+    try {
+      item.source.playbackRate.cancelScheduledValues(now);
+      item.source.playbackRate.setValueAtTime(absRate, now);
+    } catch (error) {}
+  });
+}
+
+function moveTrackScratch(
+  trackNum,
+  timeDelta,
+  { autoRelease = false, elapsedSeconds: providedElapsed = null } = {}
+) {
+  const deltaSeconds = Number(timeDelta);
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0) return;
+  if (!trackScratchSessions.has(trackNum)) {
+    if (!startTrackScratch(trackNum)) return;
+  }
+
+  const session = trackScratchSessions.get(trackNum);
+  const refAudio = session?.stems[0]?.stem.audio;
+  if (!session || !refAudio) return;
+
+  cancelTrackScratchHandoffPrime(session);
+  if (session.physicsFrame) {
+    cancelAnimationFrame(session.physicsFrame);
+    session.physicsFrame = null;
+  }
+  session.coasting = false;
+
+  const now = performance.now();
+  const measuredElapsed = Number(providedElapsed);
+  const elapsedSeconds =
+    Number.isFinite(measuredElapsed) && measuredElapsed > 0
+      ? Math.max(0.004, Math.min(0.12, measuredElapsed))
+      : Math.max(0.008, Math.min(0.06, (now - session.lastMoveAt) / 1000));
+  session.lastMoveAt = now;
+
+  const duration = Number.isFinite(refAudio.duration)
+    ? Math.max(0, refAudio.duration - 0.02)
+    : Number.POSITIVE_INFINITY;
+  const nextPosition = resolveTrackTimeWithinActiveLoop(
+    trackNum,
+    session.currentTime + deltaSeconds,
+    duration
+  );
+  session.currentTime = nextPosition.time;
+
+  let targetRate = deltaSeconds / elapsedSeconds;
+  if (Math.abs(targetRate) >= 1) {
+    targetRate =
+      Math.sign(targetRate) *
+      (1 + Math.pow(Math.abs(targetRate) - 1, 0.78));
+  }
+  targetRate = applyJogSpeedProfile(targetRate);
+
+  const changedDirection =
+    session.velocity !== 0 &&
+    Math.sign(session.velocity) !== Math.sign(targetRate);
+  session.velocity = changedDirection
+    ? targetRate
+    : session.velocity * 0.24 + targetRate * 0.76;
+
+  cancelTrackWaveformReset(trackNum);
+  setTrackMediaTime(trackNum, session.currentTime);
+  handleTrackProgress(trackNum, true);
+  if (nextPosition.wrapped) {
+    stopTrackScratchSources(session, 0.008);
+  }
+  startTrackScratchSources(session, session.velocity);
+
+  clearTimeout(session.sourceIdleTimer);
+  session.sourceIdleTimer = setTimeout(() => {
+    session.velocity = 0;
+    stopTrackScratchSources(session, 0.025);
+  }, 110);
+
+  clearTimeout(session.autoReleaseTimer);
+  if (autoRelease && !session.explicitHold) {
+    session.autoReleaseTimer = setTimeout(() => {
+      endTrackScratch(trackNum);
+    }, 80);
+  }
+}
+
+function fadeTrackAudioIn(trackNum, audio, durationMs = 90) {
+  const startedAt = performance.now();
+  const fadeIn = () => {
+    if (!tracks[trackNum].isPlaying) {
+      audio.volume = 1;
+      return;
+    }
+    const progress = Math.min(
+      1,
+      (performance.now() - startedAt) / Math.max(1, durationMs)
+    );
+    audio.volume = Math.sin(progress * Math.PI * 0.5);
+    if (progress < 1) requestAnimationFrame(fadeIn);
+  };
+  fadeIn();
+}
+
+function primeTrackScratchHandoff(
+  session,
+  { remainingSeconds = 0, normalVelocity = 1 } = {}
+) {
+  if (!session || session.handoffPrimed || !session.wasPlaying) return;
+  const track = tracks[session.trackNum];
+  if (!track?.isPlaying) return;
+
+  const refAudio = session.stems[0]?.stem.audio;
+  const maxTime =
+    refAudio && Number.isFinite(refAudio.duration)
+      ? Math.max(0, refAudio.duration - 0.02)
+      : Number.POSITIVE_INFINITY;
+  const predictedExtraTravel =
+    (session.velocity - normalVelocity) *
+    Math.max(0, remainingSeconds) /
+    4;
+  const preRollPosition = resolveTrackTimeWithinActiveLoop(
+    session.trackNum,
+    session.currentTime + predictedExtraTravel,
+    maxTime
+  );
+
+  session.handoffPrimed = true;
+  session.stems.forEach(({ stem }) => {
+    const audio = stem.audio;
+    audio.volume = 0;
+    audio.currentTime = preRollPosition.time;
+    audio.preservesPitch = true;
+    audio.playbackRate = track.speedVal;
+    audio.play().catch(() => {});
+  });
+}
+
+function cancelTrackScratchHandoffPrime(session) {
+  if (!session?.handoffPrimed) return;
+  session.handoffPrimed = false;
+  session.stems.forEach(({ stem }) => {
+    stem.audio.pause();
+    stem.audio.volume = 1;
+  });
+}
+
+function completeTrackScratch(session, { fadeSeconds = 0.1 } = {}) {
+  if (!session || trackScratchSessions.get(session.trackNum) !== session) return;
+  const trackNum = session.trackNum;
+  const track = tracks[trackNum];
+  trackScratchSessions.delete(trackNum);
+  clearTimeout(session.sourceIdleTimer);
+  clearTimeout(session.autoReleaseTimer);
+  if (session.physicsFrame) {
+    cancelAnimationFrame(session.physicsFrame);
+    session.physicsFrame = null;
+  }
+
+  const refAudio = session.stems[0]?.stem.audio;
+  let audibleScratchTime = session.currentTime;
+  if (session.wasPlaying && session.sources.length > 0 && audioCtx) {
+    audibleScratchTime = updateTrackScratchSourceClock(
+      session,
+      audioCtx.currentTime
+    );
+  } else if (
+    session.wasPlaying &&
+    session.sourceClockAudioTime === null &&
+    Number.isFinite(session.sourceClockMediaTime)
+  ) {
+    audibleScratchTime = session.sourceClockMediaTime;
+  }
+  const finalPosition = resolveTrackTimeWithinActiveLoop(
+    trackNum,
+    audibleScratchTime,
+    refAudio && Number.isFinite(refAudio.duration)
+      ? Math.max(0, refAudio.duration - 0.02)
+      : Number.POSITIVE_INFINITY
+  );
+  const finalTime = finalPosition.time;
+  session.currentTime = finalTime;
+  setTrackMediaTime(trackNum, finalTime);
+
+  if (session.wasPlaying && track.isPlaying) {
+    const handoffSeconds = Math.max(0.08, Math.min(0.14, fadeSeconds || 0.1));
+    const primedPlaybackReady =
+      session.handoffPrimed &&
+      session.stems.every(({ stem }) => !stem.audio.paused);
+    if (primedPlaybackReady) {
+      session.stems.forEach(({ stem }) => {
+        fadeTrackAudioIn(trackNum, stem.audio, handoffSeconds * 1000);
+      });
+      stopTrackScratchSources(session, handoffSeconds);
+      handleTrackProgress(trackNum, true);
+      return;
+    }
+
+    const handoffStartedAt = performance.now();
+    const normalVelocity = Math.max(0.05, Number(track.speedVal) || 1);
+    const resumeTasks = session.stems.map(({ stem }) => {
+      const audio = stem.audio;
+      audio.volume = 0;
+      audio.currentTime = finalTime;
+      audio.preservesPitch = true;
+      audio.playbackRate = track.speedVal;
+      return audio.play()
+        .then(() => ({ audio, started: true }))
+        .catch(() => {
+          audio.volume = 1;
+          return { audio, started: false };
+        });
+    });
+
+    Promise.all(resumeTasks).then(results => {
+      const replacementSession = trackScratchSessions.get(trackNum);
+      if (
+        replacementSession ||
+        !session.wasPlaying ||
+        !tracks[trackNum].isPlaying
+      ) {
+        results.forEach(({ audio, started }) => {
+          if (started) audio.pause();
+          audio.volume = 1;
+        });
+        stopTrackScratchSources(session, 0.025);
+        return;
+      }
+
+      const handoffElapsedSeconds = Math.max(
+        0,
+        (performance.now() - handoffStartedAt) / 1000
+      );
+      const handoffMaxTime =
+        refAudio && Number.isFinite(refAudio.duration)
+          ? Math.max(0, refAudio.duration - 0.02)
+          : Number.POSITIVE_INFINITY;
+      const synchronizedPosition = resolveTrackTimeWithinActiveLoop(
+        trackNum,
+        finalTime + normalVelocity * handoffElapsedSeconds,
+        handoffMaxTime
+      );
+      session.currentTime = synchronizedPosition.time;
+      setTrackMediaTime(trackNum, synchronizedPosition.time);
+
+      results.forEach(({ audio, started }) => {
+        if (started) {
+          fadeTrackAudioIn(trackNum, audio, handoffSeconds * 1000);
+        }
+      });
+      stopTrackScratchSources(session, handoffSeconds);
+    });
+  } else {
+    session.stems.forEach(({ stem }) => {
+      stem.audio.pause();
+      stem.audio.volume = 1;
+    });
+    stopTrackScratchSources(session, fadeSeconds);
+  }
+
+  handleTrackProgress(trackNum, true);
+}
+
+function runTrackScratchInertia(session) {
+  if (
+    !session ||
+    trackScratchSessions.get(session.trackNum) !== session ||
+    !session.coasting
+  ) {
+    return;
+  }
+
+  const now = performance.now();
+  const deltaTime = Math.max(
+    0.001,
+    Math.min(0.05, (now - session.lastPhysicsAt) / 1000)
+  );
+  session.lastPhysicsAt = now;
+
+  const track = tracks[session.trackNum];
+  const refAudio = session.stems[0]?.stem.audio;
+  if (!track || !refAudio) {
+    completeTrackScratch(session);
+    return;
+  }
+
+  const normalVelocity =
+    session.wasPlaying && track.isPlaying
+      ? Math.max(0.05, Number(track.speedVal) || 1)
+      : 0;
+  const inertiaDuration = Math.max(0, jogInertiaSeconds);
+  if (inertiaDuration <= 0) {
+    session.velocity = normalVelocity;
+    completeTrackScratch(session, { fadeSeconds: 0.05 });
+    return;
+  }
+
+  const coastProgress = Math.min(
+    1,
+    Math.max(0, (now - session.coastStartedAt) / (inertiaDuration * 1000))
+  );
+  const easedProgress = 1 - Math.pow(1 - coastProgress, 3);
+  session.velocity =
+    session.coastStartVelocity +
+    (normalVelocity - session.coastStartVelocity) * easedProgress;
+
+  const maxTime = Number.isFinite(refAudio.duration)
+    ? Math.max(0, refAudio.duration - 0.02)
+    : Number.POSITIVE_INFINITY;
+  const nextPosition = resolveTrackTimeWithinActiveLoop(
+    session.trackNum,
+    session.currentTime + session.velocity * deltaTime,
+    maxTime
+  );
+  session.currentTime = nextPosition.time;
+
+  if (!session.handoffPrimed) {
+    setTrackMediaTime(session.trackNum, session.currentTime);
+  }
+  handleTrackProgress(session.trackNum, true);
+  if (session.wasPlaying && track.isPlaying) {
+    if (nextPosition.wrapped) {
+      stopTrackScratchSources(session, 0.008);
+    }
+    startTrackScratchSources(session, session.velocity);
+  }
+
+  const inertiaRemainingSeconds =
+    inertiaDuration * Math.max(0, 1 - coastProgress);
+  if (inertiaRemainingSeconds <= 0.22) {
+    primeTrackScratchHandoff(session, {
+      remainingSeconds: inertiaRemainingSeconds,
+      normalVelocity
+    });
+  }
+
+  const settled = coastProgress >= 1;
+  const reachedStart = session.currentTime <= 0 && session.velocity < 0;
+  const reachedEnd =
+    Number.isFinite(maxTime) &&
+    session.currentTime >= maxTime &&
+    session.velocity > 0;
+
+  if (settled || reachedEnd || (reachedStart && normalVelocity === 0)) {
+    session.velocity = normalVelocity;
+    completeTrackScratch(session, { fadeSeconds: 0.09 });
+    return;
+  }
+
+  session.physicsFrame = requestAnimationFrame(() => {
+    runTrackScratchInertia(session);
+  });
+}
+
+function endTrackScratch(
+  trackNum,
+  { fadeSeconds = 0.1, allowInertia = true } = {}
+) {
+  const session = trackScratchSessions.get(trackNum);
+  if (!session) return;
+  clearTimeout(session.sourceIdleTimer);
+  clearTimeout(session.autoReleaseTimer);
+  if (session.wasPlaying && session.sources.length > 0 && audioCtx) {
+    session.currentTime = updateTrackScratchSourceClock(
+      session,
+      audioCtx.currentTime
+    );
+    setTrackMediaTime(trackNum, session.currentTime);
+  }
+  const track = tracks[trackNum];
+  const normalVelocity =
+    session.wasPlaying && track.isPlaying
+      ? Math.max(0.05, Number(track.speedVal) || 1)
+      : 0;
+
+  if (
+    allowInertia &&
+    jogInertiaSeconds > 0 &&
+    !session.coasting &&
+    Math.abs(session.velocity - normalVelocity) >= 0.025
+  ) {
+    session.explicitHold = false;
+    session.coasting = true;
+    const coastStartedAt = performance.now();
+    session.lastPhysicsAt = coastStartedAt;
+    session.coastStartedAt = coastStartedAt;
+    session.coastStartVelocity = session.velocity;
+    session.physicsFrame = requestAnimationFrame(() => {
+      runTrackScratchInertia(session);
+    });
+    return;
+  }
+
+  if (session.coasting && allowInertia) return;
+  completeTrackScratch(session, { fadeSeconds });
+}
+
+function jogTrackBySeconds(trackNum, timeDelta) {
+  const refAudio = getRefAudio(trackNum);
+  if (
+    !refAudio ||
+    !Number.isFinite(refAudio.currentTime) ||
+    !Number.isFinite(timeDelta) ||
+    timeDelta === 0
+  ) {
+    return;
+  }
+
+  const duration =
+    Number.isFinite(refAudio.duration) && refAudio.duration > 0
+      ? refAudio.duration
+      : Number.POSITIVE_INFINITY;
+  const nextPosition = resolveTrackTimeWithinActiveLoop(
+    trackNum,
+    refAudio.currentTime + timeDelta,
+    duration
+  );
+
+  cancelTrackWaveformReset(trackNum);
+  setTrackMediaTime(trackNum, nextPosition.time);
+  handleTrackProgress(trackNum, true);
+}
+
+function applyMidiControllerMessage(message) {
+  for (const [controlId, mapping] of Object.entries(
+    midiControllerConfig.mappings
+  )) {
+    if (!midiMappingMatchesMessage(mapping, message)) continue;
+    const definition = MIDI_CONTROL_BY_ID.get(controlId);
+    if (!definition) continue;
+
+    if (mapping.kind === 'relative') {
+      applyMidiJogControl(definition, mapping, message.value);
+      continue;
+    }
+
+    if (mapping.kind === 'continuous') {
+      applyMidiContinuousControl(definition, mapping, message.value);
+      continue;
+    }
+
+    const active =
+      message.type === 'note'
+        ? Boolean(message.active)
+        : message.value >= Number(mapping.activeThreshold || 1);
+    const wasActive = midiButtonStates.get(controlId) === true;
+    midiButtonStates.set(controlId, active);
+    if (definition.kind === 'jogTouch') {
+      if (active && !wasActive) {
+        startTrackScratch(definition.trackNum, { explicitHold: true });
+      } else if (!active && wasActive) {
+        endTrackScratch(definition.trackNum);
+      }
+      continue;
+    }
+    if (active && !wasActive) {
+      triggerMidiButtonControl(definition);
+    } else if (!active && wasActive) {
+      releaseMidiButtonControl(definition);
+    }
+  }
+}
+
+function handleMidiMessage(event) {
+  const message = parseMidiMessage(event.data);
+  if (!message) return;
+  const input = event.currentTarget || event.target;
+
+  if (midiWizard) {
+    if (input && input.id === midiWizard.inputId) {
+      handleMidiWizardMessage(message);
+    }
+    return;
+  }
+
+  if (midiInputMatchesConfig(input)) {
+    applyMidiControllerMessage(message);
+  }
+}
+
+let tabletControllerConnectedClients = 0;
+let tabletControllerInfo = null;
+
+function buildTabletCueState(trackNum, cueIndex) {
+  const track = tracks[trackNum];
+  const cueTime = track.hotCues[cueIndex];
+  const isCue = Number.isFinite(cueTime);
+  const sound = track.soundButtons[cueIndex];
+  const isSample = Boolean(sound && sound.buffer);
+  return {
+    enabled: isCue || isSample,
+    isCue,
+    time: isCue ? cueTime : 0,
+    label: isCue
+      ? `CUE ${cueIndex + 1}`
+      : isSample
+        ? String(sound.name || `SAMPLE ${cueIndex + 1}`).toUpperCase()
+        : 'EMPTY'
+  };
+}
+
+function buildTabletControllerState() {
+  return {
+    jogPhysics: {
+      maxSpeed: jogMaxSpeed,
+      inertiaSeconds: jogInertiaSeconds
+    },
+    tracks: [1, 2].map(trackNum => {
+      const track = tracks[trackNum];
+      const refAudio = getRefAudio(trackNum);
+      const scratchSession = trackScratchSessions.get(trackNum);
+      const titleElement = document.getElementById(`track-name-${trackNum}`);
+      return {
+        title:
+          (titleElement && titleElement.textContent) ||
+          track.title ||
+          `TRACK ${trackNum} (EMPTY)`,
+        bpm: Number(track.bpmVal || 120) * Number(track.speedVal || 1),
+        speed: Number(track.speedVal || 1),
+        playing: track.isPlaying === true,
+        scratching: Boolean(scratchSession),
+        coasting: scratchSession?.coasting === true,
+        jogVelocity: scratchSession
+          ? Number(scratchSession.velocity) || 0
+          : Number(track.speedVal) || 1,
+        mediaTime:
+          refAudio && Number.isFinite(refAudio.currentTime)
+            ? refAudio.currentTime
+            : 0,
+        duration:
+          refAudio && Number.isFinite(refAudio.duration)
+            ? refAudio.duration
+            : 0,
+        coverPath: track.coverArtPath || '',
+        hasCover: Boolean(track.coverArtPath),
+        cues: Array.from(
+          { length: 8 },
+          (_, cueIndex) => buildTabletCueState(trackNum, cueIndex)
+        )
+      };
+    })
+  };
+}
+
+function publishTabletControllerState(force = false) {
+  if (!force && tabletControllerConnectedClients < 1) return;
+  ipcRenderer.send(
+    'tablet-controller:state',
+    buildTabletControllerState()
+  );
+}
+
+function handleTabletControllerCue(payload) {
+  const trackNum = Number(payload.trackNum);
+  const cueIndex = Number(payload.cueIndex);
+  if (
+    (trackNum !== 1 && trackNum !== 2) ||
+    !Number.isInteger(cueIndex) ||
+    cueIndex < 0 ||
+    cueIndex >= 8
+  ) {
+    return;
+  }
+
+  const definition = {
+    trackNum,
+    soundButtonIndex: cueIndex,
+    buttonId: `sound-btn-${trackNum}-${cueIndex}`
+  };
+  if (payload.pressed === true) {
+    triggerMidiButtonControl(definition);
+  } else {
+    releaseMidiButtonControl(definition);
+  }
+  publishTabletControllerState(true);
+}
+
+function updateTabletControllerClientCount(count) {
+  tabletControllerConnectedClients = Math.max(0, Number(count) || 0);
+  const webButton = document.getElementById('btn-tablet-controller');
+  if (webButton) {
+    webButton.classList.toggle(
+      'has-clients',
+      tabletControllerConnectedClients > 0
+    );
+  }
+  if (tabletControllerConnectedClients > 0) {
+    publishTabletControllerState(true);
+  }
+}
+
+function renderTabletControllerInfo(info) {
+  tabletControllerInfo = info;
+  const address = document.getElementById('tablet-controller-address');
+  const copyButton = document.getElementById('btn-tablet-controller-copy');
+  if (!address || !copyButton) return;
+
+  const urls = Array.isArray(info?.urls) ? info.urls : [];
+  if (info?.ready && urls.length) {
+    address.textContent = urls[0];
+    address.classList.remove('tablet-address-empty');
+    copyButton.disabled = false;
+    copyButton.dataset.url = urls[0];
+  } else {
+    address.textContent = 'NOT AVAILABLE';
+    address.classList.add('tablet-address-empty');
+    copyButton.disabled = true;
+    delete copyButton.dataset.url;
+  }
+  updateTabletControllerClientCount(info?.connectedClients || 0);
+}
+
+async function openTabletControllerModal() {
+  const modal = document.getElementById('tablet-controller-modal');
+  if (modal) modal.classList.add('show');
+  try {
+    let info = await ipcRenderer.invoke('tablet-controller:get-info');
+    if (!info.ready) {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      info = await ipcRenderer.invoke('tablet-controller:get-info');
+    }
+    renderTabletControllerInfo(info);
+  } catch (error) {
+    renderTabletControllerInfo({ ready: false, urls: [], connectedClients: 0 });
+  }
+}
+
+function closeTabletControllerModal() {
+  const modal = document.getElementById('tablet-controller-modal');
+  if (modal) modal.classList.remove('show');
+}
+
+async function copyTabletControllerAddress() {
+  const copyButton = document.getElementById('btn-tablet-controller-copy');
+  const url = copyButton?.dataset.url;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch (error) {
+    const temporaryInput = document.createElement('textarea');
+    temporaryInput.value = url;
+    temporaryInput.style.position = 'fixed';
+    temporaryInput.style.opacity = '0';
+    document.body.appendChild(temporaryInput);
+    temporaryInput.select();
+    document.execCommand('copy');
+    temporaryInput.remove();
+  }
+  const previousText = copyButton.textContent;
+  copyButton.textContent = 'COPIED';
+  setTimeout(() => {
+    copyButton.textContent = previousText;
+  }, 1000);
+}
+
+function setupTabletControllerExtension() {
+  const openButton = document.getElementById('btn-tablet-controller');
+  const closeButton = document.getElementById('btn-tablet-controller-close');
+  const copyButton = document.getElementById('btn-tablet-controller-copy');
+  const modal = document.getElementById('tablet-controller-modal');
+
+  if (openButton) {
+    openButton.addEventListener('click', openTabletControllerModal);
+  }
+  if (closeButton) {
+    closeButton.addEventListener('click', closeTabletControllerModal);
+  }
+  if (copyButton) {
+    copyButton.addEventListener('click', copyTabletControllerAddress);
+  }
+  if (modal) {
+    modal.addEventListener('mousedown', event => {
+      if (event.target === modal) closeTabletControllerModal();
+    });
+  }
+  document.addEventListener('keydown', event => {
+    if (
+      event.key === 'Escape' &&
+      modal &&
+      modal.classList.contains('show')
+    ) {
+      event.preventDefault();
+      closeTabletControllerModal();
+    }
+  });
+
+  ipcRenderer.on('tablet-controller:connections', (event, count) => {
+    updateTabletControllerClientCount(count);
+  });
+  ipcRenderer.on('tablet-controller:input', (event, payload) => {
+    if (payload?.type === 'jogStart') {
+      startTrackScratch(Number(payload.trackNum), { explicitHold: true });
+      publishTabletControllerState(true);
+    } else if (payload?.type === 'jogMove' || payload?.type === 'jog') {
+      moveTrackScratch(
+        Number(payload.trackNum),
+        Math.max(-1.5, Math.min(1.5, Number(payload.deltaSeconds) || 0)),
+        {
+          elapsedSeconds:
+            Number.isFinite(Number(payload.elapsedMs)) &&
+            Number(payload.elapsedMs) > 0
+              ? Number(payload.elapsedMs) / 1000
+              : null
+        }
+      );
+      publishTabletControllerState(true);
+    } else if (payload?.type === 'jogEnd') {
+      endTrackScratch(Number(payload.trackNum));
+      publishTabletControllerState(true);
+    } else if (payload?.type === 'transport') {
+      const trackNum = Number(payload.trackNum);
+      if (trackNum !== 1 && trackNum !== 2) return;
+      if (payload.action === 'playPause') {
+        togglePlayTrack(trackNum);
+      } else if (payload.action === 'stop') {
+        stopTrack(trackNum);
+      }
+      publishTabletControllerState(true);
+    } else if (payload?.type === 'cue') {
+      handleTabletControllerCue(payload);
+    }
+  });
+
+  setInterval(() => publishTabletControllerState(), 100);
 }
 
 function getMimeType(filePath) {
@@ -711,6 +2795,726 @@ const tracks = {
   }
 };
 
+const MACRO_COUNT = 8;
+const MACRO_KNOB_LABELS = Object.freeze({
+  bass: 'BASS',
+  low: 'LOWS',
+  treb: 'TREBLE',
+  inst: 'INST VOLUME',
+  voc: 'VOCALS VOLUME',
+  pitch: 'PITCH',
+  speed: 'SPEED',
+  echo: 'ECHO',
+  filter: 'FILTER',
+  pan: 'PAN',
+  reverb: 'REVERB',
+  echotime: 'ECHO TIME'
+});
+const macroTransitions = new Map();
+let macroConfigTrackNum = null;
+let macroConfigIndex = null;
+let macroConfigDraft = null;
+
+function createDefaultMacro(index) {
+  return {
+    name: `MACRO ${index + 1}`,
+    transitionSeconds: 0,
+    locked: false,
+    assignments: []
+  };
+}
+
+const trackMacros = {
+  1: Array.from({ length: MACRO_COUNT }, (_, index) => createDefaultMacro(index)),
+  2: Array.from({ length: MACRO_COUNT }, (_, index) => createDefaultMacro(index))
+};
+
+function cloneMacro(macro, index) {
+  const transitionSeconds = Number(macro?.transitionSeconds);
+  const assignments = Array.isArray(macro?.assignments)
+    ? macro.assignments
+        .filter(assignment =>
+          assignment &&
+          typeof assignment.id === 'string' &&
+          ['continuous', 'discrete', 'button'].includes(assignment.kind)
+        )
+        .map(assignment => ({
+          id: assignment.id,
+          kind: assignment.kind,
+          label:
+            typeof assignment.label === 'string'
+              ? assignment.label.slice(0, 48)
+              : assignment.id,
+          ...(assignment.kind === 'button'
+            ? {}
+            : { value: assignment.kind === 'continuous'
+                ? Number(assignment.value)
+                : String(assignment.value ?? '') })
+        }))
+        .filter(assignment =>
+          assignment.kind !== 'continuous' || Number.isFinite(assignment.value)
+        )
+    : [];
+
+  return {
+    name:
+      typeof macro?.name === 'string' && macro.name.trim()
+        ? macro.name.trim().slice(0, 24)
+        : `MACRO ${index + 1}`,
+    transitionSeconds: Number.isFinite(transitionSeconds)
+      ? Math.max(0, Math.min(600, transitionSeconds))
+      : 0,
+    locked: Boolean(macro?.locked),
+    assignments
+  };
+}
+
+function loadLockedMacros() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem('notoMixer_lockedMacros') || '{}'
+    );
+    [1, 2].forEach(trackNum => {
+      const savedMacros = saved?.tracks?.[trackNum];
+      if (!Array.isArray(savedMacros)) return;
+      savedMacros.forEach(savedMacro => {
+        const index = Number(savedMacro?.index);
+        if (!Number.isInteger(index) || index < 0 || index >= MACRO_COUNT) return;
+        const restoredMacro = cloneMacro(savedMacro, index);
+        restoredMacro.locked = true;
+        trackMacros[trackNum][index] = restoredMacro;
+      });
+    });
+  } catch (error) {
+    console.warn('Unable to restore locked macros.', error);
+  }
+}
+
+function persistLockedMacros() {
+  const payload = {
+    version: 1,
+    tracks: {
+      1: trackMacros[1]
+        .map((macro, index) => ({ ...macro, index }))
+        .filter(macro => macro.locked),
+      2: trackMacros[2]
+        .map((macro, index) => ({ ...macro, index }))
+        .filter(macro => macro.locked)
+    }
+  };
+  localStorage.setItem('notoMixer_lockedMacros', JSON.stringify(payload));
+  persistUserSettings();
+}
+
+function getMacroButtonLabel(button, trackNum) {
+  const id = button.id || '';
+  const fixedLabels = {
+    [`btn-play-${trackNum}`]: 'PLAY',
+    [`btn-stop-${trackNum}`]: 'STOP',
+    [`btn-auto-loop-${trackNum}`]: 'AUTO LOOP',
+    [`btn-loop-halve-${trackNum}`]: 'LOOP HALF',
+    [`btn-loop-double-${trackNum}`]: 'LOOP DOUBLE',
+    [`btn-loop-in-${trackNum}`]: 'LOOP IN',
+    [`btn-loop-out-${trackNum}`]: 'LOOP OUT',
+    [`btn-loop-exit-${trackNum}`]: 'LOOP EXIT',
+    [`btn-sync-${trackNum}`]: 'SYNC',
+    [`btn-end-sync-${trackNum}`]: 'END SYNC',
+    [`btn-quantize-${trackNum}`]: 'QUANTIZE',
+    [`btn-tap-${trackNum}`]: 'TAP',
+    [`btn-metro-${trackNum}`]: 'METRONOME'
+  };
+  if (fixedLabels[id]) return fixedLabels[id];
+  const soundMatch = id.match(/^sound-btn-[12]-(\d+)$/);
+  if (soundMatch) return `BUTTON ${Number(soundMatch[1]) + 1}`;
+  return (button.textContent || id || 'BUTTON').trim().replace(/\s+/g, ' ').slice(0, 48);
+}
+
+function resolveMacroAssignableControl(target) {
+  const trackElement = target.closest?.('.track-strip[data-track]');
+  const trackNum = Number(trackElement?.dataset.track);
+  if (![1, 2].includes(trackNum)) return null;
+
+  const macroButton = target.closest('.macro-btn');
+  if (macroButton) return null;
+
+  const knobWrapper = target.closest('.exertia-knob-wrapper');
+  const knobMatch = knobWrapper?.id.match(/^knob-(.+)-([12])-wrapper$/);
+  if (knobMatch && Number(knobMatch[2]) === trackNum) {
+    const param = knobMatch[1];
+    return {
+      trackNum,
+      id: `knob:${param}`,
+      kind: 'continuous',
+      label: MACRO_KNOB_LABELS[param] || param.toUpperCase()
+    };
+  }
+
+  if (
+    target.closest('.vol-control-section') ||
+    target.closest(`#vol-${trackNum}`)
+  ) {
+    return {
+      trackNum,
+      id: 'volume',
+      kind: 'continuous',
+      label: 'TRACK VOLUME'
+    };
+  }
+
+  if (
+    target.closest('.bpm-control-section') ||
+    target.closest(`#bpm-${trackNum}`)
+  ) {
+    return {
+      trackNum,
+      id: 'bpm',
+      kind: 'continuous',
+      label: 'BPM'
+    };
+  }
+
+  if (
+    target.closest('.bpm-div-section') ||
+    target.closest(`#bpmdiv-${trackNum}`)
+  ) {
+    return {
+      trackNum,
+      id: 'bpm-division',
+      kind: 'discrete',
+      label: 'BEAT DIVISION'
+    };
+  }
+
+  const button = target.closest('button');
+  if (
+    !button ||
+    !button.id ||
+    button.classList.contains('track-tab-btn') ||
+    button.classList.contains('visualizer-mode-btn')
+  ) {
+    return null;
+  }
+
+  return {
+    trackNum,
+    id: `button:${button.id}`,
+    kind: 'button',
+    label: getMacroButtonLabel(button, trackNum),
+    buttonId: button.id
+  };
+}
+
+function readMacroControlValue(trackNum, controlId) {
+  if (controlId.startsWith('knob:')) {
+    const param = controlId.slice('knob:'.length);
+    return Number(document.getElementById(`${param}-${trackNum}`)?.value);
+  }
+  if (controlId === 'volume') {
+    return Number(document.getElementById(`vol-${trackNum}`)?.value);
+  }
+  if (controlId === 'bpm') {
+    return Number(document.getElementById(`bpm-${trackNum}`)?.value);
+  }
+  if (controlId === 'bpm-division') {
+    return document.getElementById(`bpmdiv-${trackNum}`)?.value || '1/1';
+  }
+  return null;
+}
+
+function assignControlToMacro(descriptor, macroIndex) {
+  const macro = trackMacros[descriptor.trackNum][macroIndex];
+  const assignment = {
+    id: descriptor.id,
+    kind: descriptor.kind,
+    label: descriptor.label
+  };
+  if (descriptor.kind !== 'button') {
+    assignment.value = readMacroControlValue(
+      descriptor.trackNum,
+      descriptor.id
+    );
+  }
+
+  macro.assignments = macro.assignments.filter(
+    existing => existing.id !== assignment.id
+  );
+  macro.assignments.push(assignment);
+  renderMacroButton(descriptor.trackNum, macroIndex);
+  if (macro.locked) persistLockedMacros();
+  logConsole(
+    `Macro: Assigned ${assignment.label} to Track ${descriptor.trackNum} ${macro.name}`,
+    'system'
+  );
+}
+
+function applyMacroContinuousValue(trackNum, assignment, value, isFinal = false) {
+  if (assignment.id.startsWith('knob:')) {
+    const param = assignment.id.slice('knob:'.length);
+    if (['bass', 'low', 'treb'].includes(param)) {
+      setEQ(trackNum, param, value);
+    } else if (param === 'inst') {
+      setStemVolume(trackNum, 'inst', value);
+    } else if (param === 'voc') {
+      setStemVolume(trackNum, 'vocals', value);
+    } else if (param === 'pitch') {
+      setPitch(trackNum, value);
+    } else if (param === 'speed') {
+      setSpeed(trackNum, value, {
+        skipMetronomeRestart: !isFinal,
+        suppressSyncPropagation: true
+      });
+    } else if (param === 'echo') {
+      setEcho(trackNum, value);
+    } else if (param === 'filter') {
+      setFilter(trackNum, value);
+    } else if (param === 'pan') {
+      setPan(trackNum, value);
+    } else if (param === 'reverb') {
+      setReverb(trackNum, value);
+    } else if (param === 'echotime') {
+      setEchoTime(trackNum, value);
+    }
+  } else if (assignment.id === 'volume') {
+    setVolume(trackNum, value);
+  } else if (assignment.id === 'bpm') {
+    setBPM(trackNum, value);
+  }
+}
+
+function cancelMacroControlTransition(trackNum, controlId) {
+  const key = `${trackNum}:${controlId}`;
+  const frameId = macroTransitions.get(key);
+  if (frameId !== undefined) {
+    cancelAnimationFrame(frameId);
+    macroTransitions.delete(key);
+  }
+}
+
+function transitionMacroControl(trackNum, assignment, seconds) {
+  const startValue = Number(readMacroControlValue(trackNum, assignment.id));
+  const targetValue = Number(assignment.value);
+  if (!Number.isFinite(startValue) || !Number.isFinite(targetValue)) return;
+
+  cancelMacroControlTransition(trackNum, assignment.id);
+  if (seconds <= 0 || Math.abs(startValue - targetValue) < 0.0001) {
+    applyMacroContinuousValue(trackNum, assignment, targetValue, true);
+    return;
+  }
+
+  const transitionKey = `${trackNum}:${assignment.id}`;
+  const startedAt = performance.now();
+  const durationMs = seconds * 1000;
+
+  const animate = now => {
+    const linearProgress = Math.min(1, (now - startedAt) / durationMs);
+    const easedProgress =
+      linearProgress * linearProgress * (3 - 2 * linearProgress);
+    const value = startValue + (targetValue - startValue) * easedProgress;
+    applyMacroContinuousValue(
+      trackNum,
+      assignment,
+      value,
+      linearProgress >= 1
+    );
+
+    if (linearProgress < 1) {
+      macroTransitions.set(transitionKey, requestAnimationFrame(animate));
+    } else {
+      macroTransitions.delete(transitionKey);
+    }
+  };
+
+  macroTransitions.set(transitionKey, requestAnimationFrame(animate));
+}
+
+function executeMacro(trackNum, macroIndex) {
+  const macro = trackMacros[trackNum][macroIndex];
+  if (!macro || macro.assignments.length === 0) {
+    logConsole(`Macro: ${macro?.name || `Macro ${macroIndex + 1}`} is empty`, 'system');
+    return;
+  }
+
+  macro.assignments.forEach(assignment => {
+    if (assignment.kind === 'button') {
+      const buttonId = assignment.id.slice('button:'.length);
+      document.getElementById(buttonId)?.click();
+    } else if (assignment.kind === 'discrete') {
+      if (assignment.id === 'bpm-division') {
+        setBPMDiv(trackNum, assignment.value);
+      }
+    } else {
+      transitionMacroControl(
+        trackNum,
+        assignment,
+        macro.transitionSeconds
+      );
+    }
+  });
+
+  const macroButton = document.getElementById(
+    `macro-btn-${trackNum}-${macroIndex}`
+  );
+  if (macroButton) {
+    macroButton.classList.add('executing');
+    setTimeout(
+      () => macroButton.classList.remove('executing'),
+      Math.max(180, Math.min(800, macro.transitionSeconds * 1000))
+    );
+  }
+  logConsole(
+    `Macro: Executed ${macro.name} on Track ${trackNum} (${macro.assignments.length} controls)`,
+    'system'
+  );
+}
+
+function renderMacroButton(trackNum, macroIndex) {
+  const macro = trackMacros[trackNum][macroIndex];
+  const button = document.getElementById(
+    `macro-btn-${trackNum}-${macroIndex}`
+  );
+  if (!button) return;
+  const name = button.querySelector('.macro-btn-name');
+  const meta = button.querySelector('.macro-btn-meta');
+  if (name) name.textContent = macro.name;
+  if (meta) {
+    meta.textContent = macro.assignments.length === 1
+      ? '1 CONTROL'
+      : `${macro.assignments.length} CONTROLS`;
+  }
+  button.classList.toggle('assigned', macro.assignments.length > 0);
+  button.classList.toggle('locked', macro.locked);
+  button.title =
+    `${macro.name} · ${macro.assignments.length} assigned · ` +
+    `${macro.transitionSeconds}s transition · right-click to configure`;
+}
+
+function renderMacroGrid(trackNum) {
+  const grid = document.getElementById(`track-content-macros-${trackNum}`);
+  if (!grid) return;
+  grid.replaceChildren();
+
+  for (let macroIndex = 0; macroIndex < MACRO_COUNT; macroIndex++) {
+    const cell = document.createElement('div');
+    cell.className = 'macro-btn-cell';
+
+    const number = document.createElement('span');
+    number.className = 'macro-btn-num';
+    number.textContent = String(macroIndex + 1);
+
+    const button = document.createElement('button');
+    button.className = 'macro-btn';
+    button.id = `macro-btn-${trackNum}-${macroIndex}`;
+    button.type = 'button';
+    button.dataset.track = String(trackNum);
+    button.dataset.macroIndex = String(macroIndex);
+
+    const name = document.createElement('span');
+    name.className = 'macro-btn-name';
+    const meta = document.createElement('span');
+    meta.className = 'macro-btn-meta';
+    button.append(name, meta);
+    button.addEventListener('click', () => executeMacro(trackNum, macroIndex));
+
+    cell.append(number, button);
+    grid.appendChild(cell);
+    renderMacroButton(trackNum, macroIndex);
+  }
+}
+
+function renderMacroConfigurationAssignments() {
+  const list = document.getElementById('macro-config-assignments');
+  const count = document.getElementById('macro-config-count');
+  if (!list || !count || !macroConfigDraft) return;
+  list.replaceChildren();
+  count.textContent = String(macroConfigDraft.assignments.length);
+
+  if (macroConfigDraft.assignments.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'macro-assignment-empty';
+    empty.textContent = 'NO CONTROLS ASSIGNED';
+    list.appendChild(empty);
+    return;
+  }
+
+  macroConfigDraft.assignments.forEach((assignment, assignmentIndex) => {
+    const row = document.createElement('div');
+    row.className = 'macro-assignment-row';
+
+    const label = document.createElement('span');
+    label.textContent = assignment.label;
+    const value = document.createElement('span');
+    value.className = 'macro-assignment-value';
+    value.textContent = assignment.kind === 'button'
+      ? 'TRIGGER'
+      : String(assignment.value);
+    const remove = document.createElement('button');
+    remove.className = 'macro-assignment-remove';
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = `Remove ${assignment.label}`;
+    remove.addEventListener('click', () => {
+      macroConfigDraft.assignments.splice(assignmentIndex, 1);
+      renderMacroConfigurationAssignments();
+    });
+
+    row.append(label, value, remove);
+    list.appendChild(row);
+  });
+}
+
+function openMacroConfiguration(trackNum, macroIndex) {
+  const modal = document.getElementById('macro-config-modal');
+  if (!modal) return;
+  macroConfigTrackNum = trackNum;
+  macroConfigIndex = macroIndex;
+  macroConfigDraft = cloneMacro(trackMacros[trackNum][macroIndex], macroIndex);
+
+  const title = document.getElementById('macro-config-title');
+  const name = document.getElementById('macro-config-name');
+  const transition = document.getElementById('macro-config-transition');
+  const lock = document.getElementById('macro-config-lock');
+  if (title) title.textContent = `TRACK ${trackNum} · MACRO ${macroIndex + 1}`;
+  if (name) name.value = macroConfigDraft.name;
+  if (transition) transition.value = String(macroConfigDraft.transitionSeconds);
+  if (lock) lock.checked = macroConfigDraft.locked;
+  renderMacroConfigurationAssignments();
+  modal.classList.add('show');
+  setTimeout(() => name?.focus(), 0);
+}
+
+function closeMacroConfiguration() {
+  document.getElementById('macro-config-modal')?.classList.remove('show');
+  macroConfigTrackNum = null;
+  macroConfigIndex = null;
+  macroConfigDraft = null;
+}
+
+function saveMacroConfiguration() {
+  if (
+    !macroConfigDraft ||
+    ![1, 2].includes(macroConfigTrackNum) ||
+    !Number.isInteger(macroConfigIndex)
+  ) {
+    closeMacroConfiguration();
+    return;
+  }
+
+  const name = document.getElementById('macro-config-name')?.value.trim();
+  const transitionValue = Number(
+    document.getElementById('macro-config-transition')?.value
+  );
+  macroConfigDraft.name =
+    name?.slice(0, 24) || `MACRO ${macroConfigIndex + 1}`;
+  macroConfigDraft.transitionSeconds = Number.isFinite(transitionValue)
+    ? Math.max(0, Math.min(600, transitionValue))
+    : 0;
+  macroConfigDraft.locked = Boolean(
+    document.getElementById('macro-config-lock')?.checked
+  );
+
+  trackMacros[macroConfigTrackNum][macroConfigIndex] = cloneMacro(
+    macroConfigDraft,
+    macroConfigIndex
+  );
+  renderMacroButton(macroConfigTrackNum, macroConfigIndex);
+  persistLockedMacros();
+  logConsole(
+    `Macro: Saved ${trackMacros[macroConfigTrackNum][macroConfigIndex].name} ` +
+    `on Track ${macroConfigTrackNum}`,
+    'system'
+  );
+  closeMacroConfiguration();
+}
+
+function setHotCueFromMacroMenu(trackNum, buttonIndex) {
+  const track = tracks[trackNum];
+  const button = document.getElementById(
+    `sound-btn-${trackNum}-${buttonIndex}`
+  );
+  if (!button) return;
+  let refAudio = null;
+  if (track.stems.main.exists) refAudio = track.stems.main.audio;
+  else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
+  else if (track.stems.inst.audios.length > 0) {
+    refAudio = track.stems.inst.audios[0].audio;
+  } else if (track.isSynth && track.fallbackAudio) {
+    refAudio = track.fallbackAudio;
+  }
+
+  if (!refAudio || !refAudio.duration) {
+    logConsole(
+      `Err: Cannot set cue, no audio playing on Track ${trackNum}`,
+      'err'
+    );
+    return;
+  }
+
+  const cueTime = refAudio.currentTime;
+  const hotCueColors = [
+    '#ff0055', '#ffaa00', '#ffff00', '#00ff00',
+    '#00ffff', '#0055ff', '#aa00ff', '#ff00aa'
+  ];
+  const cueColor = hotCueColors[buttonIndex % hotCueColors.length];
+  track.hotCues[buttonIndex] = cueTime;
+  track.soundButtons[buttonIndex] = { path: '', name: 'CUE', buffer: null };
+  renderHotCueButtonLabel(button, buttonIndex, cueTime);
+  button.classList.add('loaded', 'cue-draggable');
+  button.draggable = true;
+  button.style.color = cueColor;
+  button.style.borderColor = cueColor;
+  button.title =
+    `Cue ${buttonIndex + 1} at ${formatTime(cueTime)} — ` +
+    `drag onto the other track's ES button`;
+  logConsole(
+    `Success: Set Hot Cue ${buttonIndex + 1} at ${cueTime.toFixed(2)}s on Track ${trackNum}`,
+    'system'
+  );
+}
+
+function hideMacroAssignContextMenu() {
+  const menu = document.getElementById('macro-assign-context-menu');
+  if (!menu) return;
+  menu.classList.remove('show', 'open-left');
+  menu.setAttribute('aria-hidden', 'true');
+}
+
+function addMacroContextAction(menu, label, action) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'macro-context-item';
+  button.textContent = label;
+  button.addEventListener('click', () => {
+    hideMacroAssignContextMenu();
+    action();
+  });
+  menu.appendChild(button);
+}
+
+function showMacroAssignContextMenu(event, descriptor) {
+  const menu = document.getElementById('macro-assign-context-menu');
+  if (!menu) return;
+  menu.replaceChildren();
+
+  const title = document.createElement('div');
+  title.className = 'macro-context-title';
+  title.textContent = `TRACK ${descriptor.trackNum} · ${descriptor.label}`;
+  menu.appendChild(title);
+
+  const assignParent = document.createElement('div');
+  assignParent.className = 'macro-context-item macro-context-parent';
+  assignParent.tabIndex = 0;
+  const assignLabel = document.createElement('span');
+  assignLabel.textContent = 'ASSIGN TO';
+  const arrow = document.createElement('span');
+  arrow.textContent = '›';
+  const submenu = document.createElement('div');
+  submenu.className = 'macro-context-submenu';
+
+  trackMacros[descriptor.trackNum].forEach((macro, macroIndex) => {
+    const option = document.createElement('button');
+    option.type = 'button';
+    const optionName = document.createElement('span');
+    optionName.textContent = macro.name;
+    const optionCount = document.createElement('small');
+    optionCount.textContent = String(macro.assignments.length);
+    option.append(optionName, optionCount);
+    option.addEventListener('click', submenuEvent => {
+      submenuEvent.stopPropagation();
+      assignControlToMacro(descriptor, macroIndex);
+      hideMacroAssignContextMenu();
+    });
+    submenu.appendChild(option);
+  });
+  assignParent.append(assignLabel, arrow, submenu);
+  menu.appendChild(assignParent);
+
+  const soundMatch = descriptor.buttonId?.match(/^sound-btn-[12]-(\d+)$/);
+  if (soundMatch) {
+    const separator = document.createElement('div');
+    separator.className = 'macro-context-separator';
+    menu.appendChild(separator);
+    addMacroContextAction(menu, 'SET HOT CUE', () => {
+      setHotCueFromMacroMenu(
+        descriptor.trackNum,
+        Number(soundMatch[1])
+      );
+    });
+  }
+
+  if (descriptor.buttonId === `btn-end-sync-${descriptor.trackNum}`) {
+    const separator = document.createElement('div');
+    separator.className = 'macro-context-separator';
+    menu.appendChild(separator);
+    addMacroContextAction(menu, 'END SYNC SETTINGS', () => {
+      openEndSyncSettings(descriptor.trackNum);
+    });
+  }
+
+  menu.style.left = `${Math.max(4, Math.min(event.clientX, window.innerWidth - 202))}px`;
+  menu.style.top = `${Math.max(4, Math.min(event.clientY, window.innerHeight - 120))}px`;
+  menu.classList.toggle('open-left', event.clientX > window.innerWidth - 430);
+  menu.classList.add('show');
+  menu.setAttribute('aria-hidden', 'false');
+}
+
+function setupMacroUI() {
+  loadLockedMacros();
+  renderMacroGrid(1);
+  renderMacroGrid(2);
+
+  document.addEventListener('contextmenu', event => {
+    const macroButton = event.target.closest?.('.macro-btn');
+    if (macroButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      hideMacroAssignContextMenu();
+      openMacroConfiguration(
+        Number(macroButton.dataset.track),
+        Number(macroButton.dataset.macroIndex)
+      );
+      return;
+    }
+
+    const descriptor = resolveMacroAssignableControl(event.target);
+    if (!descriptor) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    showMacroAssignContextMenu(event, descriptor);
+  }, true);
+
+  document.addEventListener('mousedown', event => {
+    if (!event.target.closest?.('#macro-assign-context-menu')) {
+      hideMacroAssignContextMenu();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    hideMacroAssignContextMenu();
+    if (
+      document.getElementById('macro-config-modal')?.classList.contains('show')
+    ) {
+      closeMacroConfiguration();
+    }
+  });
+  window.addEventListener('blur', hideMacroAssignContextMenu);
+  window.addEventListener('resize', hideMacroAssignContextMenu);
+
+  document.getElementById('macro-config-cancel')
+    ?.addEventListener('click', closeMacroConfiguration);
+  document.getElementById('macro-config-save')
+    ?.addEventListener('click', saveMacroConfiguration);
+  document.getElementById('macro-config-clear')
+    ?.addEventListener('click', () => {
+      if (!macroConfigDraft) return;
+      macroConfigDraft.assignments = [];
+      renderMacroConfigurationAssignments();
+    });
+  document.getElementById('macro-config-modal')
+    ?.addEventListener('mousedown', event => {
+      if (event.target.id === 'macro-config-modal') closeMacroConfiguration();
+    });
+}
+
 // Web Serial State
 let activePort = null;
 let handshakeInterval = null;
@@ -991,6 +3795,7 @@ function updateTrackPlatterCover(trackNum, coverPath = '') {
   if (!platter || !cover) return;
 
   const hasCover = Boolean(coverPath && fs.existsSync(coverPath));
+  tracks[trackNum].coverArtPath = hasCover ? coverPath : '';
   if (hasCover) {
     cover.src = coverPath;
     cover.alt = `Track ${trackNum} cover art`;
@@ -1012,6 +3817,10 @@ function updateTrackPlatterPlayback(trackNum) {
 function updateTrackPlatterPosition(trackNum, mediaTime = null) {
   const disc = document.querySelector(`#deck-platter-${trackNum} .deck-platter-disc`);
   if (!disc) return;
+  if (notoMixerConfig.legacyMode) {
+    disc.style.transform = 'rotate(0deg)';
+    return;
+  }
 
   const refAudio = getRefAudio(trackNum);
   const currentTime = Number.isFinite(mediaTime)
@@ -1487,6 +4296,10 @@ function flashEndSyncBeat(trackNum, otherNum, beatDuration, includeOutgoingTrack
 
 function updateEndSyncFinalFlash(trackNum, otherNum, refAudio, effectiveEnd) {
   const track = tracks[trackNum];
+  if (notoMixerConfig.legacyMode) {
+    clearEndSyncFinalFlash(trackNum);
+    return;
+  }
   const playbackSpeed = Math.max(0.01, track.speedVal || 1);
   const remainingSeconds = (effectiveEnd - refAudio.currentTime) / playbackSpeed;
 
@@ -1959,6 +4772,32 @@ function animateTrackWaveformReset(trackNum, startTime) {
     document.getElementById(`canvas-${trackNum}`)
   ].filter(Boolean);
 
+  if (notoMixerConfig.legacyMode) {
+    const heldTime = Math.min(startTime, fullDuration);
+    track._waveformResetActive = true;
+    track._waveformResetGraySettled = true;
+    canvases.forEach(canvas => canvas.classList.add('waveform-end-reset'));
+    setTrackMediaTime(trackNum, heldTime);
+    updateProgressUI(trackNum, (heldTime / fullDuration) * 100);
+    const heldTimeLabel = document.getElementById(`time-current-${trackNum}`);
+    if (heldTimeLabel && document.activeElement !== heldTimeLabel) {
+      heldTimeLabel.textContent = formatTime(heldTime);
+    }
+    track._waveformResetTimer = setTimeout(() => {
+      track._waveformResetTimer = null;
+      if (track._waveformResetToken !== animationToken) return;
+      setTrackMediaTime(trackNum, 0);
+      updateProgressUI(trackNum, 0);
+      if (heldTimeLabel && document.activeElement !== heldTimeLabel) {
+        heldTimeLabel.textContent = '0:00';
+      }
+      track._waveformResetActive = false;
+      track._waveformResetGraySettled = false;
+      canvases.forEach(canvas => canvas.classList.remove('waveform-end-reset'));
+    }, 2000);
+    return;
+  }
+
   track._waveformResetActive = true;
   track._waveformResetGraySettled = false;
   canvases.forEach(canvas => canvas.classList.add('waveform-end-reset'));
@@ -2190,6 +5029,7 @@ function saveEndSyncSettings() {
     track.endSyncFadeOutEnabled ? 'true' : 'false'
   );
   localStorage.setItem(`notoMixer_endSyncFadeSeconds_${trackNum}`, String(fadeSeconds));
+  persistUserSettings();
   updateEndSyncButton(trackNum);
   logConsole(
     track.endSyncMixEnabled
@@ -2443,16 +5283,26 @@ function playTrack(trackNum) {
     audioCtx.resume();
   }
 
+  let hasValidStems = false;
+  if (track.stems.main.exists || track.stems.vocals.exists || track.stems.inst.exists) {
+    hasValidStems = true;
+  }
+
+  if (!hasValidStems && !notoMixerConfig.noAudioLoadedFallback) {
+    track.isPlaying = false;
+    logConsole(
+      `Err: Track ${trackNum} has no loaded audio; fallback is disabled`,
+      'err'
+    );
+    playErrorJingle();
+    return;
+  }
+
   // Handle master track assignment
   const otherNum = (trackNum === 1) ? 2 : 1;
   if (!tracks[otherNum].isPlaying) {
     masterTrackNum = trackNum;
     logConsole(`Sync: Track ${trackNum} is now MASTER`, 'system');
-  }
-
-  let hasValidStems = false;
-  if (track.stems.main.exists || track.stems.vocals.exists || track.stems.inst.exists) {
-    hasValidStems = true;
   }
 
   if (hasValidStems) {
@@ -2528,6 +5378,7 @@ function pauseTrack(trackNum) {
   }
   if (wasFadingOut) track.endSyncFadeOutStarted = false;
   track.isPlaying = false;
+  endTrackScratch(trackNum, { fadeSeconds: 0, allowInertia: false });
   updateTrackPlatterPlayback(trackNum);
   clearEndSyncTimer(trackNum);
   clearEndSyncFinalFlash(trackNum);
@@ -2590,6 +5441,7 @@ function stopTrack(trackNum, { preserveOwnedFades = false } = {}) {
     cancelEndSyncTrackFade(trackNum, true);
   }
   track.isPlaying = false;
+  endTrackScratch(trackNum, { fadeSeconds: 0, allowInertia: false });
   track.endSyncMixStarted = false;
   track.endSyncFadeOutStarted = false;
   updateTrackPlatterPlayback(trackNum);
@@ -3276,13 +6128,15 @@ function startSynthDemo(trackNum) {
   if (quantizeBtn) quantizeBtn.classList.add('disabled-control');
 
   if (!track.fallbackAudio) {
-    track.fallbackAudio = new Audio('assets/audio/test-audio.mp3');
+    track.fallbackAudio = new Audio(
+      getNotoMixerAssetUrl('audio', 'test-audio.mp3')
+    );
     track.fallbackAudio.loop = true;
     const source = audioCtx.createMediaElementSource(track.fallbackAudio);
     source.connect(track.gainNode);
     
     // Analyze BPM, Offset, and Waveform for the test audio
-    fetch('assets/audio/test-audio.mp3')
+    fetch(getNotoMixerAssetUrl('audio', 'test-audio.mp3'))
       .then(res => res.arrayBuffer())
       .then(ab => audioCtx.decodeAudioData(ab))
       .then(buffer => {
@@ -3647,6 +6501,7 @@ function setupUIListeners() {
       const btn = document.getElementById(`btn-vis-${mode}-${trackNum}`);
       if (btn) {
         btn.addEventListener('click', () => {
+          if (mode === 'spectrum' && !notoMixerConfig.enableSpectrum) return;
           tracks[trackNum].visMode = mode;
           
           // Toggle active class among buttons in this track's header
@@ -3846,13 +6701,14 @@ function setupUIListeners() {
         tabButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
-        document.getElementById(`track-content-eq-${trackNum}`).classList.remove('active');
-        document.getElementById(`track-content-buttons-${trackNum}`).classList.remove('active');
-        const contentLoop = document.getElementById(`track-content-loop-${trackNum}`);
-        if (contentLoop) contentLoop.classList.remove('active');
+        document
+          .querySelectorAll(`#track-${trackNum} .track-tab-content`)
+          .forEach(content => content.classList.remove('active'));
         
         const targetTab = btn.getAttribute('data-tab');
-        document.getElementById(`track-content-${targetTab}-${trackNum}`).classList.add('active');
+        document
+          .getElementById(`track-content-${targetTab}-${trackNum}`)
+          ?.classList.add('active');
       });
     });
 
@@ -4357,7 +7213,7 @@ function setupUIListeners() {
     ipcRenderer.send('select-working-directory');
   });
 
-  // Resizable explorer sidebar/bottom panel logic
+  // Resizable bottom explorer logic
   const resizeHandle = document.getElementById('sidebar-resize-handle');
   const sidebar = document.querySelector('.exertia-sidebar');
   if (resizeHandle && sidebar) {
@@ -4368,30 +7224,18 @@ function setupUIListeners() {
       isResizing = true;
       resizeHandle.classList.add('active');
       
-      const startX = e.clientX;
       const startY = e.clientY;
-      const startWidth = sidebar.clientWidth;
       const startHeight = sidebar.clientHeight;
       
       function onMouseMove(moveEvent) {
         if (!isResizing) return;
         
-        if (explorerLayout === 'bottom') {
-          // Bottom layout: Resize height (drag UP = increase height)
-          const deltaY = startY - moveEvent.clientY;
-          const newHeight = startHeight + deltaY;
-          if (newHeight >= 100 && newHeight <= 450) {
-            sidebar.style.height = newHeight + 'px';
-            localStorage.setItem('notoMixer_explorerHeight', newHeight);
-          }
-        } else {
-          // Sidebar layout: Resize width (drag RIGHT = increase width)
-          const deltaX = moveEvent.clientX - startX;
-          const newWidth = startWidth + deltaX;
-          if (newWidth >= 160 && newWidth <= 450) {
-            sidebar.style.width = newWidth + 'px';
-            localStorage.setItem('notoMixer_explorerWidth', newWidth);
-          }
+        // Bottom explorer: dragging upward increases its height.
+        const deltaY = startY - moveEvent.clientY;
+        const newHeight = startHeight + deltaY;
+        if (newHeight >= 100 && newHeight <= 450) {
+          sidebar.style.height = newHeight + 'px';
+          localStorage.setItem('notoMixer_explorerHeight', newHeight);
         }
       }
       
@@ -4400,6 +7244,7 @@ function setupUIListeners() {
         resizeHandle.classList.remove('active');
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
+        persistUserSettings();
       }
       
       window.addEventListener('mousemove', onMouseMove);
@@ -4436,6 +7281,7 @@ function setupUIListeners() {
         stackedHandle.classList.remove('active');
         window.removeEventListener('mousemove', onMouseMoveStacked);
         window.removeEventListener('mouseup', onMouseUpStacked);
+        persistUserSettings();
       }
       
       window.addEventListener('mousemove', onMouseMoveStacked);
@@ -4500,7 +7346,8 @@ function loadDirectoryStems(trackNum, dirPath) {
       songTitle = dirPath.split(/[\\/]/).pop();
     }
 
-    document.getElementById(`track-name-${trackNum}`).textContent = songTitle.toUpperCase();
+    track.title = songTitle.toUpperCase();
+    document.getElementById(`track-name-${trackNum}`).textContent = track.title;
     // Clean up any dynamic inst audio elements first
     track.stems.inst.audios.forEach(item => {
       item.audio.pause();
@@ -4974,6 +7821,8 @@ function closeSongAnalyzerDaemon(generation, failed = 0, immediate = false) {
       overlay.classList.remove('show');
       overlay.setAttribute('aria-hidden', 'true');
     }
+    initialSongCheckComplete = true;
+    maybeShowEvaluationNotice();
   }, finishDelay);
 }
 
@@ -4994,6 +7843,11 @@ function animateTrackWaveform(trackNum) {
     document.getElementById(`overview-canvas-${trackNum}`),
     document.getElementById(`canvas-${trackNum}`)
   ].filter(Boolean);
+
+  if (notoMixerConfig.legacyMode) {
+    canvases.forEach(canvas => canvas.classList.remove('waveform-reveal'));
+    return;
+  }
 
   canvases.forEach(canvas => {
     canvas.classList.remove('waveform-reveal');
@@ -5429,7 +8283,7 @@ async function findSongCover(songPath, mainAudioPath, isFile) {
     if (!metadata.common.picture || metadata.common.picture.length === 0) return '';
 
     const picture = metadata.common.picture[0];
-    const cacheDir = path.join(__dirname, '.cover_cache');
+    const cacheDir = path.join(notoMixerRoot, 'settings', '.cover_cache');
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
     const safeName = crypto.createHash('md5').update(mainAudioPath).digest('hex') + '.jpg';
     const cachedCoverPath = path.join(cacheDir, safeName);
@@ -5598,6 +8452,7 @@ function loadSongMetadata(songPath, bpmElement, durElement, waveCanvas, artImg, 
 ipcRenderer.on('working-directory-selected', (event, dirPath) => {
   workingDir = dirPath;
   localStorage.setItem('notoMixer_workingDir', dirPath);
+  persistUserSettings();
   document.getElementById('working-dir-path').textContent = dirPath;
   
   const headerTitle = document.getElementById('songs-header-title');
@@ -5612,10 +8467,16 @@ function showConnectionModal() {
   const modal = document.getElementById('connection-modal');
   if (modal) {
     modal.classList.add('show');
-    // Play the alert sound when the connection modal appears
-    const errorSound = new Audio('assets/audio/error.mp3');
-    errorSound.play().catch(e => console.log('Could not play error sound:', e));
+    playErrorJingle();
   }
+}
+
+function playErrorJingle() {
+  if (!notoMixerConfig.errorJingle) return;
+  const errorSound = new Audio(
+    getNotoMixerAssetUrl('audio', 'error.mp3')
+  );
+  errorSound.play().catch(e => console.log('Could not play error sound:', e));
 }
 
 function hideConnectionModal() {
@@ -5739,6 +8600,8 @@ function showSettingsModal() {
     modal.classList.add('show');
   }
   populateKeyboardBindingInputs();
+  refreshMidiControllerUI();
+  populateJogPhysicsSettingsUI();
   scheduleAudioDeviceRefresh();
 
   const openingSilenceCheck = document.getElementById('setting-skip-opening-silence');
@@ -5809,7 +8672,6 @@ function loadMusicSettings() {
 }
 
 let layoutMode = 'default';
-let explorerLayout = 'sidebar';
 
 function loadLayoutSettings() {
   const savedLayout = localStorage.getItem('notoMixer_layoutMode');
@@ -5820,13 +8682,10 @@ function loadLayoutSettings() {
   }
   applyLayoutMode(layoutMode);
 
-  const savedExplorer = localStorage.getItem('notoMixer_explorerLayout');
-  if (savedExplorer !== null) {
-    explorerLayout = savedExplorer;
-  } else {
-    explorerLayout = 'sidebar';
-  }
-  applyExplorerLayout(explorerLayout);
+  localStorage.removeItem('notoMixer_explorerLayout');
+  localStorage.removeItem('notoMixer_explorerWidth');
+  applyExplorerLayout();
+  persistUserSettings();
 }
 
 function applyLayoutMode(mode) {
@@ -5876,26 +8735,14 @@ function applyLayoutMode(mode) {
   }
 }
 
-function applyExplorerLayout(layout) {
-  explorerLayout = layout;
+function applyExplorerLayout() {
   const workspace = document.querySelector('.exertia-workspace');
   const sidebar = document.querySelector('.exertia-sidebar');
   if (workspace && sidebar) {
-    if (layout === 'bottom') {
-      workspace.classList.add('explorer-bottom');
-      const savedHeight = localStorage.getItem('notoMixer_explorerHeight') || '180';
-      sidebar.style.height = savedHeight + 'px';
-      sidebar.style.width = '100%';
-    } else {
-      workspace.classList.remove('explorer-bottom');
-      const savedWidth = localStorage.getItem('notoMixer_explorerWidth') || '220';
-      sidebar.style.width = savedWidth + 'px';
-      sidebar.style.height = 'auto';
-    }
-  }
-  const explorerSelect = document.getElementById('setting-explorer-layout');
-  if (explorerSelect) {
-    explorerSelect.value = layout;
+    workspace.classList.add('explorer-bottom');
+    const savedHeight = localStorage.getItem('notoMixer_explorerHeight') || '180';
+    sidebar.style.height = savedHeight + 'px';
+    sidebar.style.width = '100%';
   }
 }
 
@@ -6178,6 +9025,7 @@ function startAutoConnectScanner() {
           
           logConsole(`Success: Connected to ${portName}!`, 'system');
           hideConnectionModal();
+          maybeShowEvaluationNotice();
         }
       } catch (err) {
         // Silently skip if port cannot be opened (e.g., unplugged or locked)
@@ -6288,6 +9136,8 @@ async function toggleConnection() {
       await initSerialHandshake();
       
       logConsole(`Success: Connected to ${portName}!`, 'system');
+      hideConnectionModal();
+      maybeShowEvaluationNotice();
     } catch (err) {
       logConsole(`Err: Serial connection failed: ${err.message}`, 'err');
     }
@@ -6314,6 +9164,10 @@ function setConnectedStatus(connected, portName = '') {
 }
 
 function animateValue(trackNum, paramKey, startVal, targetVal, setterFn) {
+  if (notoMixerConfig.legacyMode) {
+    setterFn(trackNum, targetVal, false);
+    return;
+  }
   const duration = 800; // 800ms duration for a smooth visual sweep
   const startTime = performance.now();
   
@@ -6869,13 +9723,15 @@ function startVisualizers() {
         
         // Loop Check
         if (track.loopEnabled && track.loopStartTime !== null && track.loopEndTime !== null && track.loopEndTime > track.loopStartTime) {
-          if (refAudio && refAudio.currentTime >= track.loopEndTime) {
-            const overshoot = refAudio.currentTime - track.loopEndTime;
-            const targetTime = track.loopStartTime + (overshoot % (track.loopEndTime - track.loopStartTime));
-            
-            if (track.stems.main.exists) track.stems.main.audio.currentTime = targetTime;
-            if (track.stems.vocals.exists) track.stems.vocals.audio.currentTime = targetTime;
-            track.stems.inst.audios.forEach(item => item.audio.currentTime = targetTime);
+          if (refAudio) {
+            const loopPosition = resolveTrackTimeWithinActiveLoop(
+              trackNum,
+              refAudio.currentTime,
+              refAudio.duration
+            );
+            if (loopPosition.wrapped) {
+              setTrackMediaTime(trackNum, loopPosition.time);
+            }
           }
         }
         
@@ -7217,7 +10073,7 @@ function startVisualizers() {
           }
         }
 
-        if (track.analyser) {
+        if (notoMixerConfig.showAudioLevel && track.analyser) {
           const bufferLength = track.analyser.frequencyBinCount;
           const dataArray = new Uint8Array(bufferLength);
           track.analyser.getByteTimeDomainData(dataArray);
@@ -7264,6 +10120,7 @@ function setupKnobDrag(trackNum, param) {
   }
 
   wrapper.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
     isDragging = true;
     startY = e.clientY;
     startValue = parseFloat(slider.value);
@@ -7320,6 +10177,7 @@ function setupVolumePercentDrag(trackNum) {
   let startVal = 80;
 
   percentSymbol.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
     isDragging = true;
     startY = e.clientY;
     startVal = parseInt(document.getElementById(`vol-${trackNum}`).value) || 80;
@@ -7385,14 +10243,24 @@ function startUdpServer() {
 // -------------------------------------------------------------
 
 window.addEventListener('DOMContentLoaded', () => {
+  const appVersionLabel = document.getElementById('settings-app-version');
+  if (appVersionLabel) {
+    appVersionLabel.textContent = notoMixerConfig.version;
+  }
   loadSnapSettings(); // Load snap settings from local storage
   loadMusicSettings(); // Load silence skipping preferences
   loadLayoutSettings(); // Load layout settings from local storage
   loadZoomSettings(); // Load zoom settings from local storage
   loadKeyboardBindings();
+  loadMidiControllerConfig();
+  loadJogPhysicsSettings();
   populateKeyboardBindingInputs();
+  setupMacroUI();
   setupUIListeners();
   setupKeyboardShortcuts();
+  setupMidiControllerUI();
+  setupTabletControllerExtension();
+  initMidiControllers();
   setupEndSyncModalListeners();
   startVisualizers();
   
@@ -7467,6 +10335,8 @@ window.addEventListener('DOMContentLoaded', () => {
         await scanPorts();
         if (!activePort) {
           showConnectionModal();
+        } else {
+          maybeShowEvaluationNotice();
         }
       } catch (err) {
         showConnectionModal();
@@ -7479,7 +10349,13 @@ window.addEventListener('DOMContentLoaded', () => {
     btnBypass.addEventListener('click', () => {
       hideConnectionModal();
       logConsole("Info: Using app in standalone mode (without notoMixer)", 'system');
+      maybeShowEvaluationNotice();
     });
+  }
+
+  const evaluationConfirmButton = document.getElementById('evaluation-btn-confirm');
+  if (evaluationConfirmButton) {
+    evaluationConfirmButton.addEventListener('click', hideEvaluationNotice);
   }
 
   // Settings Button and Modal listeners
@@ -7560,6 +10436,9 @@ window.addEventListener('DOMContentLoaded', () => {
       if (endingSilenceCheck) endingSilenceCheck.checked = skipEndingSilence;
       if (endingWarningCheck) endingWarningCheck.checked = musicEndingWarning;
       populateKeyboardBindingInputs();
+      loadJogPhysicsSettings();
+      populateJogPhysicsSettingsUI();
+      publishTabletControllerState(true);
 
       const mainSelect = document.getElementById('setting-main-audio');
       const previewSelect = document.getElementById('setting-preview-audio');
@@ -7570,9 +10449,6 @@ window.addEventListener('DOMContentLoaded', () => {
       
       const layoutSelect = document.getElementById('setting-layout-mode');
       if (layoutSelect) layoutSelect.value = layoutMode;
-      const explorerLayoutSelect = document.getElementById('setting-explorer-layout');
-      if (explorerLayoutSelect) explorerLayoutSelect.value = explorerLayout;
-      
       // Revert Zoom changes in UI and DOM
       const zoomTextSlider = document.getElementById('setting-zoom-text');
       const zoomWaveformSlider = document.getElementById('setting-zoom-waveform');
@@ -7643,6 +10519,23 @@ window.addEventListener('DOMContentLoaded', () => {
         JSON.stringify(keyboardBindings)
       );
 
+      const jogMaxSpeedSlider = document.getElementById(
+        'setting-jog-max-speed'
+      );
+      const jogInertiaSlider = document.getElementById('setting-jog-inertia');
+      if (jogMaxSpeedSlider) {
+        jogMaxSpeed = clampJogMaxSpeed(jogMaxSpeedSlider.value);
+        localStorage.setItem('notoMixer_jogMaxSpeed', String(jogMaxSpeed));
+      }
+      if (jogInertiaSlider) {
+        jogInertiaSeconds = clampJogInertiaSeconds(jogInertiaSlider.value);
+        localStorage.setItem(
+          'notoMixer_jogInertiaSeconds',
+          String(jogInertiaSeconds)
+        );
+      }
+      publishTabletControllerState(true);
+
       if (previousSkipEndingSilence !== skipEndingSilence) {
         [1, 2].forEach(trackNum => {
           if (tracks[trackNum].endSyncRampStarted) {
@@ -7681,13 +10574,6 @@ window.addEventListener('DOMContentLoaded', () => {
         applyLayoutMode(newLayout);
       }
 
-      const explorerLayoutSelect = document.getElementById('setting-explorer-layout');
-      if (explorerLayoutSelect) {
-        const newExplorerLayout = explorerLayoutSelect.value || 'sidebar';
-        localStorage.setItem('notoMixer_explorerLayout', newExplorerLayout);
-        applyExplorerLayout(newExplorerLayout);
-      }
-
       // Save zoom settings
       const zoomTextSlider = document.getElementById('setting-zoom-text');
       if (zoomTextSlider) {
@@ -7710,6 +10596,7 @@ window.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('notoMixer_zoomCover', zoomCover);
       }
       applyZoomSettings();
+      persistUserSettings();
 
       [1, 2].forEach(trackNum => {
         if (tracks[trackNum].isPlaying) {
@@ -7745,6 +10632,9 @@ window.addEventListener('DOMContentLoaded', () => {
       if (targetTab) {
         targetTab.classList.add('active');
       }
+      if (tabId === 'controllers') {
+        initMidiControllers();
+      }
     });
   });
 
@@ -7753,17 +10643,16 @@ window.addEventListener('DOMContentLoaded', () => {
   if (layoutSelect) {
     layoutSelect.value = layoutMode;
   }
-  const explorerLayoutSelect = document.getElementById('setting-explorer-layout');
-  if (explorerLayoutSelect) {
-    explorerLayoutSelect.value = explorerLayout;
-  }
-
   const snapCheck = document.getElementById('setting-snap-enable');
   const snapSlider = document.getElementById('setting-snap-threshold');
   const snapDisplay = document.getElementById('snap-threshold-display');
   const openingSilenceCheck = document.getElementById('setting-skip-opening-silence');
   const endingSilenceCheck = document.getElementById('setting-skip-ending-silence');
   const endingWarningCheck = document.getElementById('setting-music-ending-warning');
+  const jogMaxSpeedSlider = document.getElementById('setting-jog-max-speed');
+  const jogMaxSpeedDisplay = document.getElementById('jog-max-speed-display');
+  const jogInertiaSlider = document.getElementById('setting-jog-inertia');
+  const jogInertiaDisplay = document.getElementById('jog-inertia-display');
   
   if (snapCheck) {
     snapCheck.checked = snapEnabled;
@@ -7788,6 +10677,27 @@ window.addEventListener('DOMContentLoaded', () => {
   if (endingWarningCheck) {
     endingWarningCheck.checked = musicEndingWarning;
   }
+  populateJogPhysicsSettingsUI();
+  if (jogMaxSpeedSlider) {
+    jogMaxSpeedSlider.addEventListener('input', () => {
+      jogMaxSpeed = clampJogMaxSpeed(jogMaxSpeedSlider.value);
+      if (jogMaxSpeedDisplay) {
+        jogMaxSpeedDisplay.textContent =
+          `${Math.round(jogMaxSpeed)}×`;
+      }
+      publishTabletControllerState(true);
+    });
+  }
+  if (jogInertiaSlider) {
+    jogInertiaSlider.addEventListener('input', () => {
+      jogInertiaSeconds = clampJogInertiaSeconds(jogInertiaSlider.value);
+      if (jogInertiaDisplay) {
+        jogInertiaDisplay.textContent =
+          `${jogInertiaSeconds.toFixed(2)} s`;
+      }
+      publishTabletControllerState(true);
+    });
+  }
 
   // Try to connect automatically if we have previously authorized ports (no click needed)
   if (navigator.serial) {
@@ -7806,6 +10716,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!activePort) {
       showConnectionModal();
     }
+    initialMixerCheckComplete = true;
+    maybeShowEvaluationNotice();
   }, 150);
 
   // Live Zoom adjustments
@@ -9271,6 +12183,7 @@ function initInAppPreview() {
     const btn = document.getElementById(`prev-btn-vis-${mode}`);
     if (btn) {
       btn.addEventListener('click', () => {
+        if (mode === 'spectrum' && !notoMixerConfig.enableSpectrum) return;
         document.querySelectorAll('#prev-visualizer-block .visualizer-mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         previewVisMode = mode;
@@ -10301,6 +13214,7 @@ if (btnSaveCue) {
         'notoMixer_cueKeybindings',
         JSON.stringify(cueKeybindings)
       );
+      persistUserSettings();
     }
     closeCueSettings();
   });

@@ -22,6 +22,12 @@
   </style>
 </head>
 <body>
-  <img src="assets/images/splash.png" alt="Splash">
+  <img id="splash-image" alt="Splash">
+  <script>
+    const image = new URLSearchParams(window.location.search).get('image');
+    if (image) {
+      document.getElementById('splash-image').src = image;
+    }
+  </script>
 </body>
 </html>
