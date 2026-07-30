@@ -1,4 +1,4 @@
-/* exertia Live Inspired CSS - strictly square, flat, slate/anthracite theme */
+/* reset & variables */
 :root {
   --bg-app: #151515;
   --bg-rack: #2b2b2b;
@@ -7,20 +7,20 @@
   --border-light: #444444;
   --border-dark: #222222;
   
-  /* Text */
+  
   --text-active: #e5e5e5;
   --text-muted: #858585;
   --text-header: #dddddd;
   
-  /* Accents */
-  --exertia-accent: #ff5500; /* exertia classic orange */
-  --exertia-green: #a2db22;  /* exertia yellow-green */
+  
+  --exertia-accent: #ff5500; 
+  --exertia-green: #a2db22;  
   --exertia-cyan: #00ffcc;
   
   --t1-header-color: #2b4c59;
   --t2-header-color: #59352b;
 
-  /* Zoom Scaling Variables */
+  
   --zoom-text: 1.0;
   --zoom-waveform: 1.0;
   --zoom-buttons: 1.0;
@@ -33,7 +33,7 @@
   padding: 0;
   box-sizing: border-box;
   font-family: 'Inter', -apple-system, sans-serif;
-  border-radius: 0 !important; /* Force strict square styling, no rounded corners */
+  border-radius: 0 !important; 
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
@@ -163,6 +163,7 @@ html.exclusive-mode body.layout-stacked .channel-controls-layout {
   flex: 0 0 84px !important;
 }
 
+/* overlays & animations */
 .evaluation-modal-content {
   width: min(520px, calc(100vw - 32px));
   border-color: var(--exertia-accent);
@@ -382,7 +383,7 @@ body.app-daemon-locked > .in-app-window {
   }
 }
 
-/* Layout container */
+/* top header */
 .exertia-container {
   display: flex;
   flex-direction: column;
@@ -391,7 +392,6 @@ body.app-daemon-locked > .in-app-window {
   gap: 4px;
 }
 
-/* Top Menu / Header */
 .exertia-header {
   display: flex;
   justify-content: space-between;
@@ -565,7 +565,6 @@ body.app-daemon-locked > .in-app-window {
   font-weight: bold;
 }
 
-/* exertia Workspace layout (Sidebar + Rack) */
 .exertia-workspace {
   display: flex;
   flex: 1;
@@ -573,7 +572,7 @@ body.app-daemon-locked > .in-app-window {
   min-height: 0;
 }
 
-/* Sidebar styling (exertia Browser Style) */
+/* sidebar & track browser */
 .exertia-sidebar {
   width: 220px;
   background-color: #1a1a1a;
@@ -602,7 +601,6 @@ body.app-daemon-locked > .in-app-window {
   text-transform: uppercase;
 }
 
-/* BPM Filter Toggle Button */
 .bpm-filter-btn {
   background: #1a1a1a;
   border: 1px solid var(--border-light);
@@ -642,7 +640,6 @@ body.app-daemon-locked > .in-app-window {
   color: var(--exertia-accent);
 }
 
-/* BPM Compatibility Indicator */
 .bpm-compat-icon {
   display: inline-flex;
   align-items: center;
@@ -769,7 +766,7 @@ body.app-daemon-locked > .in-app-window {
   cursor: default !important;
 }
 
-/* exertia Main Rack */
+/* channel strips */
 .exertia-rack {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -779,7 +776,6 @@ body.app-daemon-locked > .in-app-window {
   overflow-y: auto;
 }
 
-/* Track Channel Strip */
 .track-strip {
   position: relative;
   background-color: var(--bg-rack);
@@ -787,10 +783,9 @@ body.app-daemon-locked > .in-app-window {
   display: flex;
   flex-direction: column;
   transition: border-color 0.2s;
-  min-height: 480px; /* Ensure layout doesn't collapse on small window sizes */
+  min-height: 480px; 
 }
 
-/* Drag over highlight styling */
 .track-strip.dragover {
   border-color: var(--exertia-green);
   box-shadow: inset 0 0 10px rgba(162, 219, 34, 0.2);
@@ -950,7 +945,6 @@ body.app-daemon-locked > .in-app-window {
   transition: background-color 0.2s;
 }
 
-/* LED Turns on if stem is loaded */
 .stem-indicator.present .indicator-box {
   background-color: var(--exertia-green);
   box-shadow: 0 0 4px var(--exertia-green);
@@ -989,17 +983,16 @@ body.app-daemon-locked > .in-app-window {
   letter-spacing: 0.35px;
 }
 
-
-/* Waveform Visualizer */
+/* waveform visualizer */
 .visualizer-block {
   position: relative;
-  flex: 1; /* Absorbs remaining vertical space dynamically */
+  flex: 1; 
   min-height: 60px; 
   background-color: #0d0d0d;
   border: 1px solid var(--border-dark);
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* Safeguard: clip any rendering overflow */
+  overflow: hidden; 
 }
 
 .visualizer-header {
@@ -1059,10 +1052,10 @@ body.app-daemon-locked > .in-app-window {
   width: 100%;
   flex: 1;
   display: block;
-  min-height: 0; /* Flexbox safety: prevent canvas intrinsic height from breaking shrink */
+  min-height: 0; 
 }
 
-/* Playback Control Strip */
+/* transport controls */
 .playback-strip {
   display: flex;
   align-items: center;
@@ -1075,7 +1068,7 @@ body.app-daemon-locked > .in-app-window {
   color: var(--text-active);
   font-weight: bold;
   height: 22px;
-  width: 48px; /* Fixed width to prevent jumping and allow centering */
+  width: 48px; 
   padding: 0;
   display: flex;
   align-items: center;
@@ -1098,14 +1091,14 @@ body.app-daemon-locked > .in-app-window {
 }
 
 .btn-play-square.clicked {
-  background-color: #a2db22 !important; /* Flash bright exertia green */
+  background-color: #a2db22 !important; 
   border-color: #a2db22 !important;
   color: #000000 !important;
   transition: none !important;
 }
 
 .btn-stop-square.clicked {
-  background-color: var(--exertia-accent) !important; /* Flash orange */
+  background-color: var(--exertia-accent) !important; 
   border-color: var(--exertia-accent) !important;
   color: #ffffff !important;
   transition: none !important;
@@ -1145,7 +1138,6 @@ body.app-daemon-locked > .in-app-window {
   box-shadow: 0 0 6px rgba(0, 85, 255, 0.5);
 }
 
-/* End Sync Button */
 .btn-end-sync {
   background-color: #1c1c1c;
   border: 1px solid #3c3c3c;
@@ -1194,7 +1186,6 @@ body.app-daemon-locked > .in-app-window {
   to { filter: brightness(1.3); }
 }
 
-/* Quantize Button */
 .btn-quantize {
   background-color: #1c1c1c;
   border: 1px solid #3c3c3c;
@@ -1243,9 +1234,8 @@ body.app-daemon-locked > .in-app-window {
   margin: 0 4px;
 }
 
-/* exertia Seek Bar */
 .progress-bar-container {
-  height: 14px; /* slightly taller for the handle */
+  height: 14px; 
   background-color: #1a1a1a;
   border: 1px solid var(--border-dark);
   position: relative;
@@ -1270,7 +1260,6 @@ body.app-daemon-locked > .in-app-window {
   display: block;
 }
 
-/* Scrubbing visual feedback */
 .progress-bar-container.scrubbing .progress-bar-fill {
   background-color: var(--exertia-accent) !important;
 }
@@ -1296,17 +1285,16 @@ body.app-daemon-locked > .in-app-window {
   border-right: 2px solid var(--exertia-accent);
 }
 
-/* EQ & Volume Layout Grid (Compact Side-by-Side: Knobs Grid on Left, Volume input on Right) */
+/* eq & volume controls */
 .channel-controls-layout {
   display: grid;
-  grid-template-columns: 1fr 65px; /* compact horizontal layout */
+  grid-template-columns: 1fr 65px; 
   gap: 6px;
   height: auto;
   flex-shrink: 0;
   min-height: 245px;
 }
 
-/* EQ Knobs Grid - Multi-row layout */
 .knobs-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1326,7 +1314,6 @@ body.app-daemon-locked > .in-app-window {
   transition: opacity 0.2s;
 }
 
-/* DISABLED EQ knob styling when stem is missing */
 .knob-cell.disabled {
   opacity: 0.15;
   pointer-events: none;
@@ -1339,7 +1326,7 @@ body.app-daemon-locked > .in-app-window {
 
 .knob-cell label {
   font-size: 9.5px;
-  color: #a5a5a5; /* brighter label text for legibility */
+  color: #a5a5a5; 
   font-weight: bold;
   letter-spacing: 0.5px;
   text-align: center;
@@ -1347,9 +1334,9 @@ body.app-daemon-locked > .in-app-window {
 
 .exertia-knob-wrapper {
   position: relative;
-  width: 58px; /* Larger knobs for better control */
+  width: 58px; 
   height: 58px;
-  cursor: ns-resize; /* exertia dial vertical drag behavior */
+  cursor: ns-resize; 
 }
 
 .exertia-knob-svg {
@@ -1376,12 +1363,11 @@ body.app-daemon-locked > .in-app-window {
   stroke-linecap: square;
 }
 
-/* Draw values neatly beneath knobs */
 .knob-val-display {
   font-family: 'Courier Prime', monospace;
-  font-size: 11.5px; /* slightly larger */
+  font-size: 11.5px; 
   font-weight: bold;
-  color: #ffffff; /* pure white for maximum legibility */
+  color: #ffffff; 
 }
 
 .hidden-range {
@@ -1396,7 +1382,6 @@ body.app-daemon-locked > .in-app-window {
   pointer-events: none;
 }
 
-/* Compact Volume Strip (Keyboard numeric input box, no slider bar) */
 .volume-input-strip {
   display: flex;
   flex-direction: column;
@@ -1559,7 +1544,6 @@ body.app-daemon-locked > .in-app-window {
   -moz-appearance: textfield;
 }
 
-/* Remove standard spinner arrows on numeric input */
 .exertia-vol-text-input::-webkit-outer-spin-button,
 .exertia-vol-text-input::-webkit-inner-spin-button,
 .exertia-bpm-text-input::-webkit-outer-spin-button,
@@ -1638,7 +1622,6 @@ body.app-daemon-locked > .in-app-window {
   box-shadow: 0 0 4px var(--exertia-accent);
 }
 
-/* exertia Console Footer */
 .exertia-console {
   background-color: var(--bg-rack);
   border: 1px solid var(--border-light);
@@ -1649,6 +1632,7 @@ body.app-daemon-locked > .in-app-window {
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.5);
 }
 
+/* footer & status bar */
 .console-tab-header {
   height: 22px;
   background-color: #383838;
@@ -1743,7 +1727,6 @@ body.app-daemon-locked > .in-app-window {
   background-color: #383838;
 }
 
-/* Scrollbars - styled boxy/thin */
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
@@ -1761,7 +1744,7 @@ body.app-daemon-locked > .in-app-window {
   background: #555;
 }
 
-/* exertia Warning Modal Overlay */
+/* settings modal */
 .exertia-modal-overlay {
   position: fixed;
   top: 0;
@@ -2165,7 +2148,6 @@ body.app-daemon-locked > .in-app-window {
   font-weight: normal !important;
 }
 
-/* Sidebar Settings Button Wrapper */
 .settings-action-row {
   position: absolute;
   bottom: 0;
@@ -2195,7 +2177,6 @@ body.app-daemon-locked > .in-app-window {
   background-color: #555555;
 }
 
-/* Compact DAW-style preferences panel */
 .settings-modal-content {
   width: min(820px, calc(100vw - 24px));
   height: min(560px, calc(100vh - 24px));
@@ -2622,7 +2603,6 @@ body.app-daemon-locked > .in-app-window {
   cursor: default;
 }
 
-/* Flat parameter rows inside settings */
 .settings-card {
   flex: 0 0 auto;
   margin: 0;
@@ -2642,7 +2622,6 @@ body.app-daemon-locked > .in-app-window {
   line-height: 1.6;
 }
 
-/* Compact settings form controls */
 .settings-row {
   display: flex;
   justify-content: space-between;
@@ -2702,7 +2681,6 @@ body.app-daemon-locked > .in-app-window {
   background: #242424;
 }
 
-/* Strictly flat, compact checkbox */
 .exertia-checkbox {
   -webkit-appearance: none;
   appearance: none;
@@ -2736,7 +2714,6 @@ body.app-daemon-locked > .in-app-window {
   background-color: #ffffff;
 }
 
-/* Flat slider with a compact hardware-style fader */
 .exertia-settings-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -2763,7 +2740,7 @@ body.app-daemon-locked > .in-app-window {
   background: #ff6b2e;
 }
 
-/* Track Tabs Header */
+/* track tabs & sound pads */
 .track-tab-header {
   display: flex;
   background-color: #1b1b1b;
@@ -2797,25 +2774,22 @@ body.app-daemon-locked > .in-app-window {
   background-color: var(--exertia-accent);
 }
 
-/* Tab contents visibility styling */
 .track-tab-content {
   display: none !important;
 }
 
 .track-tab-content.active {
-  display: grid !important; /* both knobs-grid and sound-buttons-grid use grid */
+  display: grid !important; 
 }
 
-/* Left controls pane wrapping EQs / Buttons */
 .left-controls-pane {
   display: flex;
   flex-direction: column;
   flex: 1;
   height: 100%;
-  min-height: 212px; /* Matches the natural height of knobs-grid to avoid jumpiness */
+  min-height: 212px; 
 }
 
-/* Sound Buttons Grid - takes same background and borders as knobs-grid */
 .sound-buttons-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -2833,9 +2807,9 @@ body.app-daemon-locked > .in-app-window {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 90%; /* Let it occupy most of the grid cell space */
+  width: 90%; 
   height: 90%;
-  max-width: 140px; /* Scaled up for fullscreen display */
+  max-width: 140px; 
   max-height: 140px;
   margin: 0 auto;
   aspect-ratio: 1 / 1;
@@ -2845,7 +2819,7 @@ body.app-daemon-locked > .in-app-window {
   position: absolute;
   top: 4px;
   left: 6px;
-  font-size: 10px; /* scaled up */
+  font-size: 10px; 
   color: var(--text-muted);
   z-index: 2;
   pointer-events: none;
@@ -2854,8 +2828,8 @@ body.app-daemon-locked > .in-app-window {
 .sound-btn {
   background-color: #161616;
   border: 1px solid var(--border-light);
-  color: #a5a5a5; /* brighter label text for legibility */
-  font-size: 12px; /* scaled up for legibility */
+  color: #a5a5a5; 
+  font-size: 12px; 
   font-weight: bold;
   text-align: center;
   cursor: pointer;
@@ -2904,20 +2878,17 @@ body.app-daemon-locked > .in-app-window {
   background-color: #202020;
 }
 
-/* Drag over button cell highlight */
 .sound-btn-cell.dragover .sound-btn {
   border-color: var(--exertia-green);
   background-color: rgba(162, 219, 34, 0.1);
   color: var(--exertia-green);
 }
 
-/* Loaded file state */
 .sound-btn.loaded {
   border-color: var(--exertia-cyan);
   color: #ffffff;
 }
 
-/* Playing sound state */
 .sound-btn.playing {
   background-color: var(--exertia-accent) !important;
   border-color: #ffffff !important;
@@ -3120,7 +3091,7 @@ body.app-daemon-locked > .in-app-window {
   background: #383838;
 }
 
-/* Draggable In-App Window */
+/* floating windows */
 .in-app-window {
   position: absolute;
   z-index: 1000;
@@ -3139,7 +3110,7 @@ body.app-daemon-locked > .in-app-window {
   flex-direction: column;
   overflow: hidden;
   
-  /* Zoom transition */
+  
   opacity: 0;
   transform: scale(0.85);
   visibility: hidden;
@@ -3149,7 +3120,6 @@ body.app-daemon-locked > .in-app-window {
               visibility 0.28s;
 }
 
-/* Custom Resize Handles (Inside Border Box to Prevent Clipping) */
 .resize-handle {
   position: absolute;
   z-index: 1010;
@@ -3271,15 +3241,11 @@ body.app-daemon-locked > .in-app-window {
   overflow-y: auto;
 }
 
-/* Preview Window Green Theme Styles */
 .color-prev {
   background-color: #1b3d2b;
   border-bottom: 2px solid #00ff66;
 }
 
-
-
-/* Playback Loop Strip Controls */
 .playback-loop-controls {
   display: flex;
   align-items: center;
@@ -3325,7 +3291,6 @@ body.app-daemon-locked > .in-app-window {
   box-shadow: 0 0 6px rgba(162, 219, 34, 0.4);
 }
 
-/* Adjuster for Loop Length */
 .loop-strip-adjuster {
   display: flex;
   align-items: center;
@@ -3358,7 +3323,6 @@ body.app-daemon-locked > .in-app-window {
   text-align: center;
 }
 
-/* Grab cursors for scratching */
 .waveform-canvas {
   cursor: grab;
 }
@@ -3366,7 +3330,6 @@ body.app-daemon-locked > .in-app-window {
   cursor: grabbing;
 }
 
-/* Main Content Area */
 .exertia-main-area {
   display: flex;
   flex-direction: column;
@@ -3375,7 +3338,6 @@ body.app-daemon-locked > .in-app-window {
   gap: 4px;
 }
 
-/* Stacked Visualizer Area */
 .stacked-visualizer-area {
   display: none;
   flex-direction: column;
@@ -3383,13 +3345,13 @@ body.app-daemon-locked > .in-app-window {
   background-color: var(--bg-rack);
   border: 1px solid var(--border-light);
   padding: 4px;
-  height: 250px; /* Starting height, can be resized via JS */
-  flex: none; /* So it doesn't auto-expand unless resized */
+  height: 250px; 
+  flex: none; 
 }
 
 .stacked-visualizer-area .visualizer-block {
   height: auto;
-  flex: 1; /* Automatically fill the available space of stacked area */
+  flex: 1; 
   border: 1px solid var(--border-light);
 }
 
@@ -3407,7 +3369,7 @@ body.app-daemon-locked > .in-app-window {
   background-color: rgba(0, 255, 204, 0.4);
 }
 
-/* Layout Stacked overrides */
+/* layout modes */
 .layout-stacked .track-strip {
   min-height: auto;
 }
@@ -3417,7 +3379,6 @@ body.app-daemon-locked > .in-app-window {
   height: auto;
 }
 
-/* Visualizer Track Identification Labels */
 .visualizer-track-label {
   margin-right: auto;
   font-weight: 700;
@@ -3435,7 +3396,6 @@ body.app-daemon-locked > .in-app-window {
   color: #00ff66;
 }
 
-/* Sidebar Grouping wrappers for layout modes */
 .explorer-dir-group {
   display: flex;
   flex-direction: column;
@@ -3446,16 +3406,14 @@ body.app-daemon-locked > .in-app-window {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0; /* allows inner scrolling */
+  min-height: 0; 
 }
 
-/* Song Item Artwork & Mini Waveform layout (hidden in vertical sidebar mode) */
 .song-item-art,
 .song-item-wave-canvas {
   display: none;
 }
 
-/* Sidebar Resize Handle */
 .sidebar-resize-handle {
   position: absolute;
   background-color: transparent;
@@ -3468,7 +3426,6 @@ body.app-daemon-locked > .in-app-window {
   background-color: rgba(0, 255, 204, 0.4);
 }
 
-/* Sidebar mode handle positioning (Right edge resize width) */
 .exertia-sidebar .sidebar-resize-handle {
   top: 0;
   right: -4px;
@@ -3477,7 +3434,6 @@ body.app-daemon-locked > .in-app-window {
   cursor: ew-resize;
 }
 
-/* Bottom mode handle positioning (Top edge resize height) */
 .exertia-workspace.explorer-bottom .exertia-sidebar .sidebar-resize-handle {
   top: -4px;
   left: 0;
@@ -3487,25 +3443,20 @@ body.app-daemon-locked > .in-app-window {
   cursor: ns-resize;
 }
 
-/* =============================================================
-   Bottom Songs Explorer layout overrides (Rekordbox-style Table)
-   ============================================================= */
 .exertia-workspace.explorer-bottom {
   flex-direction: column-reverse;
 }
 
 .exertia-workspace.explorer-bottom .exertia-sidebar {
   width: 100%;
-  height: 180px; /* default starting height */
+  height: 180px; 
   flex-direction: row;
   border-top: 1px solid var(--border-light);
   border-right: none;
-  overflow: visible; /* Changed to visible so resize handle can overlap the gap */
-  padding-bottom: 0; /* Clear bottom absolute padding */
+  overflow: visible; 
+  padding-bottom: 0; 
 }
 
-
-/* Layout songs list group in the center */
 .exertia-workspace.explorer-bottom .explorer-songs-group {
   flex: 1;
   display: flex;
@@ -3514,7 +3465,6 @@ body.app-daemon-locked > .in-app-window {
   height: 100%;
 }
 
-/* Table Header column alignments (visible only in bottom mode) */
 .explorer-table-header {
   display: none;
 }
@@ -3600,7 +3550,6 @@ body.app-daemon-locked > .in-app-window {
   background-color: #2b2b2b;
 }
 
-/* Show artwork and canvas columns in bottom mode */
 .exertia-workspace.explorer-bottom .song-item-art {
   display: flex;
   align-items: center;
@@ -3657,11 +3606,7 @@ body.app-daemon-locked > .in-app-window {
   color: #a0a0a0;
 }
 
-/* =============================================================
-   Zoom Scale Overrides
-   ============================================================= */
-
-/* 1. Text Zoom (Proportional font-size scaling for all text-containing elements) */
+/* zoom scaling */
 .track-strip {
   min-height: calc(480px * var(--zoom-text)) !important;
 }
@@ -3783,7 +3728,6 @@ body.app-daemon-locked > .in-app-window {
   height: calc(16px * var(--zoom-text)) !important;
 }
 
-/* 2. Waveform Zoom */
 .exertia-workspace.explorer-bottom .song-item-wave-canvas {
   width: calc(140px * var(--zoom-waveform)) !important;
   height: calc(22px * var(--zoom-waveform)) !important;
@@ -3793,7 +3737,6 @@ body.app-daemon-locked > .in-app-window {
   width: calc(140px * var(--zoom-waveform)) !important;
 }
 
-/* 3. Button Zoom */
 .exertia-btn {
   height: calc(26px * var(--zoom-buttons)) !important;
   padding: 0 calc(12px * var(--zoom-buttons)) !important;
@@ -3882,7 +3825,6 @@ body.app-daemon-locked > .in-app-window {
   padding: 0 calc(6px * var(--zoom-buttons)) !important;
 }
 
-/* 4. Cover Art Zoom */
 .exertia-workspace.explorer-bottom .song-item-art {
   width: var(--zoom-cover) !important;
   height: var(--zoom-cover) !important;
@@ -3898,7 +3840,6 @@ body.app-daemon-locked > .in-app-window {
   padding-bottom: 0 !important;
 }
 
-/* Force BPM and Duration columns to remain on a single line and size proportionally */
 .exertia-workspace.explorer-bottom .song-item-bpm,
 .exertia-workspace.explorer-bottom .song-item-duration,
 .exertia-workspace.explorer-bottom .explorer-table-header .header-col-bpm,

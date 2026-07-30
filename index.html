@@ -51,7 +51,7 @@
 
   <div class="exertia-container">
     
-    <!-- Top Bar (exertia Menu Style) -->
+    
     <header class="exertia-header">
       <div class="header-logo">
         <img class="header-logo-mark" alt="" aria-hidden="true">
@@ -59,16 +59,16 @@
       </div>
       
       <div class="header-controls">
-        <!-- Master VU Meters -->
+        
         <div class="master-vu-meters" style="display: flex; flex-direction: column; gap: 4px; margin-right: 15px; width: 120px; padding: 2px; border-radius: 4px; background: var(--bg-rack);">
-          <!-- Track 1 VU -->
+          
           <div class="vu-track" style="display: flex; align-items: center; gap: 4px;" title="Track 1 Output Level">
             <span style="font-size: 9px; font-weight: bold; color: var(--color-t1); width: 12px;">T1</span>
             <div class="vu-bar-container" style="flex: 1; height: 6px; background: linear-gradient(90deg, #00ffcc 70%, #ffff00 85%, #ff0000 95%); border-radius: 2px; overflow: hidden; position: relative; border: 1px solid #333;">
               <div id="vu-bar-t1-cover" style="position: absolute; top: 0; right: 0; height: 100%; width: 100%; background: #111; transition: width 0.05s ease-out;"></div>
             </div>
           </div>
-          <!-- Track 2 VU -->
+          
           <div class="vu-track" style="display: flex; align-items: center; gap: 4px;" title="Track 2 Output Level">
             <span style="font-size: 9px; font-weight: bold; color: var(--color-t2); width: 12px;">T2</span>
             <div class="vu-bar-container" style="flex: 1; height: 6px; background: linear-gradient(90deg, #00ffcc 70%, #ffff00 85%, #ff0000 95%); border-radius: 2px; overflow: hidden; position: relative; border: 1px solid #333;">
@@ -106,17 +106,17 @@
       </div>
     </header>
 
-    <!-- Main Workspace (Sidebar + Stems Rack) -->
+    
     <div class="exertia-workspace explorer-bottom">
       
-      <!-- Bottom Songs Explorer -->
+      
       <aside class="exertia-sidebar">
-        <!-- Resize Handle -->
+        
         <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
 
         <span id="working-dir-path" style="display: none;"></span>
         
-        <!-- Songs Explorer Main Table Group -->
+        
         <div class="explorer-songs-group">
           <div class="sidebar-header">
             <h3 id="songs-header-title">AVAILABLE SONGS</h3>
@@ -130,7 +130,7 @@
             </div>
           </div>
           
-          <!-- Table Header for bottom panel layout (hidden in sidebar layout) -->
+          
           <div class="explorer-table-header">
             <div class="header-col-art">ART</div>
             <div class="header-col-preview">PREVIEW</div>
@@ -147,16 +147,16 @@
         </div>
       </aside>
 
-      <!-- Main Content Area -->
+      
       <div class="exertia-main-area">
-        <!-- Stacked Visualizer Area (Beat Match) -->
+        
         <div id="stacked-visualizer-area" class="stacked-visualizer-area"></div>
         <div class="stacked-resize-handle" id="stacked-resize-handle" style="display: none;"></div>
         
         <!-- Mixer Device Rack -->
         <main class="exertia-rack">
         
-        <!-- CHANNEL 1 -->
+        
         <div class="track-strip" id="track-1" data-track="1">
           <div class="track-header color-t1">
             <span class="track-num">1</span>
@@ -176,12 +176,12 @@
               <canvas class="waveform-canvas" id="canvas-1"></canvas>
             </div>
 
-            <!-- Playback Strip -->
+            
             <div class="playback-strip">
               <button class="btn-play-square" id="btn-play-1">PLAY</button>
               <button class="btn-stop-square" id="btn-stop-1">STOP</button>
               
-              <!-- Loop Controls inside Playback Strip -->
+              
               <div class="playback-loop-controls">
                 <button class="loop-strip-btn btn-auto-loop" id="btn-auto-loop-1">AUTO</button>
                 <div class="loop-strip-adjuster">
@@ -204,7 +204,7 @@
               </div>
             </div>
 
-            <!-- Progress Seek Bar -->
+            
             <div class="progress-bar-container" id="prog-container-1">
               <div class="progress-click-area" id="prog-hit-1">
                 <div class="progress-bar-fill" id="progress-fill-1">
@@ -219,11 +219,11 @@
               <button class="track-tab-btn" data-tab="macros" data-track="1">MACRO</button>
             </div>
 
-            <!-- Compact EQ & Volume Grid (All 6 Knobs together, Volume as Input box) -->
+            
             <div class="channel-controls-layout" id="channel-controls-1">
               <div class="left-controls-pane">
                 <div class="knobs-grid track-tab-content active" id="track-content-eq-1">
-                <!-- Row 1: Bass, Lows, Treble -->
+                
                 <div class="knob-cell">
                   <label>BASS</label>
                   <div class="exertia-knob-wrapper" id="knob-bass-1-wrapper">
@@ -263,7 +263,7 @@
                   <span class="knob-val-display" id="val-treb-1">0.0 dB</span>
                 </div>
 
-                <!-- Row 2: Stems Volumes (Inst, Vocals, Lyrics) -->
+                
                 <div class="knob-cell" id="cell-inst-1">
                   <label>EQ INST</label>
                   <div class="exertia-knob-wrapper" id="knob-inst-1-wrapper">
@@ -305,7 +305,7 @@
                   <span class="knob-val-display" id="val-filter-1">Byp</span>
                 </div>
 
-                <!-- Row 3: Pitch, Speed, Echo -->
+                
                 <div class="knob-cell" id="cell-pitch-1">
                   <label>PITCH</label>
                   <div class="exertia-knob-wrapper" id="knob-pitch-1-wrapper">
@@ -345,7 +345,7 @@
                   <span class="knob-val-display" id="val-echo-1">0%</span>
                 </div>
 
-                <!-- Row 4: Pan, Reverb, Echo Time -->
+                
                 <div class="knob-cell" id="cell-pan-1">
                   <label>PAN</label>
                   <div class="exertia-knob-wrapper" id="knob-pan-1-wrapper">
@@ -386,7 +386,7 @@
                 </div>
               </div> <!-- ends .knobs-grid -->
 
-              <!-- Sound Buttons Grid -->
+              <!-- Sound Buttons -->
                 <div class="sound-buttons-grid track-tab-content" id="track-content-buttons-1">
                   <div class="sound-btn-cell" id="sound-btn-cell-1-0">
                     <span class="sound-btn-num">1</span>
@@ -425,9 +425,9 @@
                 <div class="macro-buttons-grid track-tab-content" id="track-content-macros-1"></div>
               </div>
 
-              <!-- Compact Volume Strip (Keyboard Input Field, No Graphic Fader) -->
+              
               <div class="volume-input-strip">
-                <!-- Section 1: Track Vol at the top -->
+                
                 <div class="vol-control-section">
                   <label>TRACK VOL</label>
                   <div class="vol-input-wrapper">
@@ -436,7 +436,7 @@
                   </div>
                 </div>
 
-                <!-- Section 2: BPM Control -->
+                <!-- BPM Control -->
                 <div class="bpm-control-section">
                   <label>BPM</label>
                   <div class="bpm-input-wrapper">
@@ -444,7 +444,7 @@
                   </div>
                 </div>
 
-                <!-- Section 3: BPM Division -->
+                
                 <div class="bpm-div-section">
                   <label>BEAT</label>
                   <select id="bpmdiv-1" class="exertia-select-mini">
@@ -454,7 +454,7 @@
                   </select>
                 </div>
 
-                <!-- Section 4: Metronome Toggle -->
+                
                 <div class="metro-control-section">
                   <button id="btn-tap-1" class="exertia-btn-tap" title="Tap repeatedly to set Track 1 BPM">TAP</button>
                   <button id="btn-metro-1" class="exertia-btn-metro">METRO</button>
@@ -496,7 +496,7 @@
 
           <div class="track-body">
             
-            <!-- Waveform Visualizer -->
+            
             <div class="visualizer-block" id="visualizer-block-2">
               <div class="visualizer-header">
                 <span class="visualizer-track-label color-t2-text">TRACK 2</span>
@@ -507,12 +507,12 @@
               <canvas class="waveform-canvas" id="canvas-2"></canvas>
             </div>
 
-            <!-- Playback Strip -->
+            
             <div class="playback-strip">
               <button class="btn-play-square" id="btn-play-2">PLAY</button>
               <button class="btn-stop-square" id="btn-stop-2">STOP</button>
               
-              <!-- Loop Controls inside Playback Strip -->
+              
               <div class="playback-loop-controls">
                 <button class="loop-strip-btn btn-auto-loop" id="btn-auto-loop-2">AUTO</button>
                 <div class="loop-strip-adjuster">
@@ -535,7 +535,7 @@
               </div>
             </div>
 
-            <!-- Progress Seek Bar -->
+            
             <div class="progress-bar-container" id="prog-container-2">
               <div class="progress-click-area" id="prog-hit-2">
                 <div class="progress-bar-fill" id="progress-fill-2">
@@ -550,11 +550,11 @@
               <button class="track-tab-btn" data-tab="macros" data-track="2">MACRO</button>
             </div>
 
-            <!-- Compact EQ & Volume Grid -->
+            
             <div class="channel-controls-layout" id="channel-controls-2">
               <div class="left-controls-pane">
                 <div class="knobs-grid track-tab-content active" id="track-content-eq-2">
-                <!-- Row 1: Bass, Lows, Treble -->
+
                 <div class="knob-cell">
                   <label>BASS</label>
                   <div class="exertia-knob-wrapper" id="knob-bass-2-wrapper">
@@ -594,7 +594,7 @@
                   <span class="knob-val-display" id="val-treb-2">0.0 dB</span>
                 </div>
 
-                <!-- Row 2: Stems Volumes (Inst, Vocals, Lyrics) -->
+
                 <div class="knob-cell" id="cell-inst-2">
                   <label>EQ INST</label>
                   <div class="exertia-knob-wrapper" id="knob-inst-2-wrapper">
@@ -636,7 +636,7 @@
                   <span class="knob-val-display" id="val-filter-2">Byp</span>
                 </div>
 
-                <!-- Row 3: Pitch, Speed, Echo -->
+
                 <div class="knob-cell" id="cell-pitch-2">
                   <label>PITCH</label>
                   <div class="exertia-knob-wrapper" id="knob-pitch-2-wrapper">
@@ -676,7 +676,7 @@
                   <span class="knob-val-display" id="val-echo-2">0%</span>
                 </div>
 
-                <!-- Row 4: Pan, Reverb, Echo Time -->
+
                 <div class="knob-cell" id="cell-pan-2">
                   <label>PAN</label>
                   <div class="exertia-knob-wrapper" id="knob-pan-2-wrapper">
@@ -717,7 +717,7 @@
                 </div>
               </div> <!-- ends .knobs-grid -->
 
-              <!-- Sound Buttons Grid -->
+
                 <div class="sound-buttons-grid track-tab-content" id="track-content-buttons-2">
                   <div class="sound-btn-cell" id="sound-btn-cell-2-0">
                     <span class="sound-btn-num">1</span>
@@ -756,9 +756,9 @@
                 <div class="macro-buttons-grid track-tab-content" id="track-content-macros-2"></div>
               </div>
 
-              <!-- Compact Volume Strip (Keyboard Input Field, No Graphic Fader) -->
+
               <div class="volume-input-strip">
-                <!-- Section 1: Track Vol at the top -->
+
                 <div class="vol-control-section">
                   <label>TRACK VOL</label>
                   <div class="vol-input-wrapper">
@@ -767,7 +767,7 @@
                   </div>
                 </div>
 
-                <!-- Section 2: BPM Control -->
+
                 <div class="bpm-control-section">
                   <label>BPM</label>
                   <div class="bpm-input-wrapper">
@@ -775,7 +775,7 @@
                   </div>
                 </div>
 
-                <!-- Section 3: BPM Division -->
+
                 <div class="bpm-div-section">
                   <label>BEAT</label>
                   <select id="bpmdiv-2" class="exertia-select-mini">
@@ -785,7 +785,7 @@
                   </select>
                 </div>
 
-                <!-- Section 4: Metronome Toggle -->
+
                 <div class="metro-control-section">
                   <button id="btn-tap-2" class="exertia-btn-tap" title="Tap repeatedly to set Track 2 BPM">TAP</button>
                   <button id="btn-metro-2" class="exertia-btn-metro">METRO</button>
@@ -822,7 +822,7 @@
       </div>
     </div>
 
-    <!-- exertia Bottom Status & Console Bar -->
+
     <footer class="exertia-console collapsed">
       <div class="console-tab-header" id="console-toggle">
         <span class="tab-indicator">▶</span>
@@ -837,7 +837,7 @@
 
   </div>
 
-  <!-- End Sync Settings Modal -->
+
   <div id="end-sync-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="end-sync-modal-title">
     <div class="exertia-modal-content end-sync-modal-content">
       <div class="modal-header">
@@ -938,7 +938,7 @@
 
   <div id="macro-assign-context-menu" class="macro-context-menu" role="menu" aria-hidden="true"></div>
 
-  <!-- Connection Warning Modal Overlay -->
+  <!-- Connection Warning -->
   <div id="connection-modal" class="exertia-modal-overlay">
     <div class="exertia-modal-content">
       <div class="modal-header">
@@ -972,7 +972,7 @@
     </div>
   </div>
 
-  <!-- Local Tablet Controller -->
+
   <div id="tablet-controller-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tablet-controller-title">
     <div class="exertia-modal-content tablet-controller-modal-content">
       <div class="modal-header">
@@ -991,7 +991,7 @@
     </div>
   </div>
 
-  <!-- Settings Modal Overlay -->
+
   <div id="settings-modal" class="exertia-modal-overlay">
     <div class="exertia-modal-content settings-modal-content">
       <div class="modal-header">
@@ -1010,9 +1010,9 @@
           <button class="settings-menu-item" data-tab="info">Info</button>
         </div>
         
-        <!-- Settings Right Content Area -->
+
         <div class="settings-content-area">
-          <!-- General Tab -->
+
           <div class="settings-tab-content active" id="tab-general">
             <div class="settings-card">
               <div class="settings-row flex-col">
@@ -1053,7 +1053,7 @@
 
           </div>
           
-          <!-- Music Tab -->
+
           <div class="settings-tab-content" id="tab-music">
             <div class="settings-card">
               <div class="settings-row">
@@ -1090,7 +1090,7 @@
             </div>
           </div>
 
-          <!-- EQs & Sliders Tab -->
+
           <div class="settings-tab-content" id="tab-eqs-sliders">
             <div class="settings-card">
               <div class="settings-row">
@@ -1111,7 +1111,7 @@
             </div>
           </div>
 
-          <!-- Keybinds Tab -->
+
           <div class="settings-tab-content" id="tab-keybinds">
             <div class="settings-card keybind-fixed-card">
               <div class="settings-row">
@@ -1147,7 +1147,7 @@
             </div>
           </div>
 
-          <!-- MIDI Controllers Tab -->
+
           <div class="settings-tab-content" id="tab-controllers">
             <div class="settings-card">
               <div class="settings-row flex-col">
@@ -1210,7 +1210,7 @@
             </div>
           </div>
           
-          <!-- Zoom Tab -->
+          <!-- idk if i should keep these -->
           <div class="settings-tab-content" id="tab-zoom">
             <div class="settings-card">
               <div class="settings-row flex-col">
@@ -1257,7 +1257,6 @@
             </div>
           </div>
           
-          <!-- Info Tab -->
           <div class="settings-tab-content" id="tab-info">
             <div class="settings-card">
               <p class="tab-placeholder-text" style="margin: 0; line-height: 1.6;">notoMixer exertia Rack v<span id="settings-app-version">1.0.0</span><br>Connected via Web Serial API.</p>
@@ -1308,9 +1307,9 @@
     </div>
   </div>
 
-  <!-- Draggable In-App Preview Window -->
+
   <div id="preview-panel" class="in-app-window">
-    <!-- Resize Handles -->
+
     <div class="resize-handle top"></div>
     <div class="resize-handle bottom"></div>
     <div class="resize-handle left"></div>
@@ -1334,7 +1333,7 @@
 
         <div class="track-body">
           
-          <!-- Waveform Visualizer -->
+
           <div class="visualizer-block" id="prev-visualizer-block">
             <div class="visualizer-header">
               <span class="visualizer-track-label color-prev-text">PREVIEW</span>
@@ -1345,12 +1344,12 @@
             <canvas class="waveform-canvas" id="prev-canvas"></canvas>
           </div>
 
-          <!-- Playback Strip -->
+
           <div class="playback-strip">
             <button class="btn-play-square" id="prev-btn-play">PLAY</button>
             <button class="btn-stop-square" id="prev-btn-stop">STOP</button>
             
-            <!-- Loop Controls inside Playback Strip -->
+
             <div class="playback-loop-controls">
               <button class="loop-strip-btn btn-auto-loop" id="prev-btn-auto-loop">AUTO</button>
               <div class="loop-strip-adjuster">
@@ -1370,7 +1369,7 @@
             </div>
           </div>
 
-          <!-- Progress Seek Bar -->
+
           <div class="progress-bar-container" id="prev-prog-container">
             <div class="progress-click-area" id="prev-prog-hit">
               <div class="progress-bar-fill" id="prev-progress-fill">
@@ -1384,11 +1383,11 @@
             <button class="track-tab-btn" id="prev-tab-buttons-btn" data-tab="buttons">BUTTONS</button>
           </div>
 
-          <!-- Compact EQ & Volume Grid -->
+
           <div class="channel-controls-layout" id="prev-channel-controls">
             <div class="left-controls-pane">
               <div class="knobs-grid track-tab-content active" id="prev-track-content-eq">
-                <!-- Row 1: Bass, Lows, Treble -->
+
                 <div class="knob-cell">
                   <label>BASS</label>
                   <div class="exertia-knob-wrapper" id="knob-prev-bass-wrapper">
@@ -1428,7 +1427,7 @@
                   <span class="knob-val-display" id="val-prev-treb">0.0 dB</span>
                 </div>
 
-                <!-- Row 2: Stems Volumes (Inst, Vocals, Lyrics) -->
+
                 <div class="knob-cell" id="prev-cell-inst">
                   <label>EQ INST</label>
                   <div class="exertia-knob-wrapper" id="knob-prev-inst-wrapper">
@@ -1468,7 +1467,7 @@
                   <span class="knob-val-display" id="val-prev-filter">Byp</span>
                 </div>
 
-                <!-- Row 3: Pitch, Speed, Echo -->
+
                 <div class="knob-cell" id="prev-cell-pitch">
                   <label>PITCH</label>
                   <div class="exertia-knob-wrapper" id="knob-prev-pitch-wrapper">
@@ -1508,7 +1507,7 @@
                   <span class="knob-val-display" id="val-prev-echo">0%</span>
                 </div>
 
-                <!-- Row 4: Pan, Reverb, Echo Time -->
+
                 <div class="knob-cell" id="prev-cell-pan">
                   <label>PAN</label>
                   <div class="exertia-knob-wrapper" id="knob-prev-pan-wrapper">
@@ -1549,7 +1548,7 @@
                 </div>
               </div> <!-- ends .knobs-grid -->
 
-              <!-- Sound Buttons Grid -->
+
               <div class="sound-buttons-grid track-tab-content" id="prev-track-content-buttons">
                 <div class="sound-btn-cell" id="prev-sound-btn-cell-0">
                   <span class="sound-btn-num">1</span>
@@ -1586,7 +1585,7 @@
                 </div>
               </div>
 
-              <!-- Compact Volume Strip -->
+
               <div class="volume-input-strip">
                 <div class="vol-control-section">
                   <label>TRACK VOL</label>
@@ -1639,7 +1638,7 @@
 
     </div>
 
-  <!-- Draggable In-App Cue Settings Window -->
+
   <div id="cue-settings-window" class="in-app-window" style="width: 320px; height: 220px; min-width: 300px; min-height: 210px; left: 40%; top: 40%; z-index: 2000;">
     <div class="in-app-window-header" id="cue-settings-header">
       <span class="in-app-window-title" id="cue-settings-title">CUE SETTINGS</span>
