@@ -33,9 +33,11 @@ WizardSizePercent=110,110
 DefaultDialogFontName=Segoe UI
 Compression=lzma2/max
 SolidCompression=yes
-Encryption=yes
-EncryptionKeyDerivation=pbkdf2/600000
-Password=exertia
+// Encryption=yes
+// EncryptionKeyDerivation=pbkdf2/600000
+// Password=exertia
+// lit no point if i put this on github
+
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

@@ -11,14 +11,14 @@ Set-StrictMode -Version Latest
 $projectRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
 $packagePath = Join-Path $projectRoot 'package.json'
 $distRoot = Join-Path $projectRoot 'dist'
-$packagedAppRoot = Join-Path $distRoot 'app\notoMixer-win32-x64'
+$packagedAppRoot = Join-Path $distRoot 'app\NotoMixer-win32-x64'
 $launcherOutputRoot = Join-Path $distRoot 'launcher'
-$launcherOutput = Join-Path $launcherOutputRoot 'notoMixer.exe'
+$launcherOutput = Join-Path $launcherOutputRoot 'MotoMixer.exe'
 $launcherSource = Join-Path $projectRoot 'installer\launcher\Program.cs'
 $installerOutputRoot = Join-Path $distRoot 'installer'
 $installerScript = Join-Path $projectRoot 'installer\NotoMixer.iss'
 $iconSource = Join-Path $projectRoot 'logo.png'
-$iconOutput = Join-Path $projectRoot 'installer\assets\notoMixer.ico'
+$iconOutput = Join-Path $projectRoot 'installer\assets\NotoMixer.ico'
 $toolsRoot = Join-Path $projectRoot '.build-tools'
 $localInnoRoot = Join-Path $toolsRoot 'Inno Setup 7'
 $innoDownload = Join-Path $toolsRoot 'innosetup-7.0.2-x64.exe'
@@ -225,7 +225,7 @@ if (-not (Test-Path -LiteralPath $launcherSource)) {
     throw "Sorgente del launcher non trovato in '$launcherSource'."
 }
 
-Write-Step 'Compilazione del launcher notoMixer.exe'
+Write-Step '!!! Compilazione del launcher NotoMixer.exe'
 New-Item -ItemType Directory -Path $launcherOutputRoot -Force | Out-Null
 & $csharpCompiler `
     /nologo `
@@ -240,7 +240,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Compilazione del launcher terminata con codice $LASTEXITCODE."
 }
 if (-not (Test-Path -LiteralPath $launcherOutput)) {
-    throw 'Launcher notoMixer.exe non creato.'
+    throw 'Launcher NotoMixer.exe non creato.'
 }
 
 $packager = Join-Path $projectRoot 'node_modules\@electron\packager\bin\electron-packager.mjs'
@@ -249,11 +249,11 @@ if (-not (Test-Path -LiteralPath $packager)) {
 }
 
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
-Write-Step "Creazione del pacchetto Electron x64 (notoMixer $appVersion)"
+Write-Step "Creazione del pacchetto Electron x64 (NotoMixer $appVersion)"
 
 $packagerArguments = @(
     $projectRoot,
-    'notoMixer',
+    'NotoMixer',
     '--platform=win32',
     '--arch=x64',
     "--out=$(Join-Path $distRoot 'app')",
@@ -270,8 +270,8 @@ $packagerArguments = @(
 if ($LASTEXITCODE -ne 0) {
     throw "Electron Packager è terminato con codice $LASTEXITCODE."
 }
-if (-not (Test-Path -LiteralPath (Join-Path $packagedAppRoot 'notoMixer.exe'))) {
-    throw "Pacchetto Electron incompleto: notoMixer.exe non trovato."
+if (-not (Test-Path -LiteralPath (Join-Path $packagedAppRoot 'NotoMixer.exe'))) {
+    throw "Pacchetto Electron incompleto: NotoMixer.exe non trovato."
 }
 
 $asarPath = Join-Path $packagedAppRoot 'resources\app.asar'
@@ -312,7 +312,7 @@ $forbiddenPatterns = @(
     '*\.gitignore*',
     '*\installer\*',
     '*\.build-tools\*',
-    '*notoMixer.ino*',
+    '*NotoMixer.ino*',
     '*\config.notomixer*',
     '*\assets\*',
     '*\settings\*',
@@ -351,7 +351,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup Compiler è terminato con codice $LASTEXITCODE."
 }
 
-$setupPath = Join-Path $installerOutputRoot "notoMixer-Setup-$appVersion.exe"
+$setupPath = Join-Path $installerOutputRoot "NotoMixer$appVersion-win64Shipping.exe"
 if (-not (Test-Path -LiteralPath $setupPath)) {
     throw "Setup compilato non trovato in '$setupPath'."
 }
@@ -364,4 +364,4 @@ Write-Host 'Installer creato con successo.' -ForegroundColor Green
 Write-Host "File:    $($setupFile.FullName)"
 Write-Host ('Size:    {0:N1} MB' -f ($setupFile.Length / 1MB))
 Write-Host "SHA-256: $($setupHash.Hash)"
-Write-Host 'Password: exertia'
+
