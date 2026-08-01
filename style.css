@@ -3409,6 +3409,92 @@ body.app-daemon-locked > .in-app-window {
   min-height: 0; 
 }
 
+.explorer-playlists-group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-light);
+  background: #151515;
+}
+
+.playlist-browser-title {
+  padding: 6px 8px;
+  color: var(--text-muted);
+  background: #242424;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.playlist-folder-list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.playlist-folder-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 7px;
+  color: #aaa;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.playlist-folder-button:hover {
+  color: #fff;
+  background: #252525;
+}
+
+.playlist-folder-button.active {
+  color: #d0d0d0;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: #484848;
+}
+
+.playlist-folder-button span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-folder-icon {
+  position: relative;
+  width: 12px;
+  height: 8px;
+  flex: 0 0 12px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+  opacity: 0.8;
+}
+
+.playlist-folder-icon::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -1px;
+  width: 6px;
+  height: 3px;
+  border: 1px solid currentColor;
+  border-bottom: 0;
+  border-radius: 1px 1px 0 0;
+}
+
+.song-list-placeholder[hidden] {
+  display: none !important;
+}
+
 .song-item-art,
 .song-item-wave-canvas {
   display: none;
@@ -3455,6 +3541,17 @@ body.app-daemon-locked > .in-app-window {
   border-right: none;
   overflow: visible; 
   padding-bottom: 0; 
+}
+
+.exertia-workspace.explorer-bottom .explorer-playlists-group {
+  width: 170px;
+  height: 100%;
+  border-right: 1px solid var(--border-light);
+  border-bottom: none;
+}
+
+.exertia-workspace.explorer-bottom .playlist-folder-list {
+  flex: 1;
 }
 
 .exertia-workspace.explorer-bottom .explorer-songs-group {

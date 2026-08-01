@@ -5298,6 +5298,14 @@ function playTrack(trackNum) {
     return;
   }
 
+  // A jog released while the deck is paused can still have an active inertia
+  // session. Settle it before starting the media elements; otherwise that
+  // session continues seeking them and eventually pauses them while the deck
+  // remains flagged as playing.
+  if (trackScratchSessions.has(trackNum)) {
+    endTrackScratch(trackNum, { fadeSeconds: 0, allowInertia: false });
+  }
+
   // Handle master track assignment
   const otherNum = (trackNum === 1) ? 2 : 1;
   if (!tracks[otherNum].isPlaying) {
@@ -7714,9 +7722,9 @@ function loadDirectoryStems(trackNum, dirPath) {
     if (quantizeBtn) quantizeBtn.classList.remove('disabled-control');
 
     if (hasAtLeastOneFile) {
-      logConsole(`Success: Song loaded on Channel ${trackNum} -> ${folderName}`, 'system');
+      logConsole(`Success: Song loaded on Channel ${trackNum} -> ${songTitle}`, 'system');
     } else {
-      logConsole(`Warning: No valid audio file found in ${folderName}`, 'err');
+      logConsole(`Warning: No valid audio file found in ${songTitle}`, 'err');
     }
     updateEndSyncMissingTargetAlert(trackNum, true);
     updateEndSyncMissingTargetAlert(trackNum === 1 ? 2 : 1, true);
@@ -7734,6 +7742,7 @@ ipcRenderer.on('directory-selected', (event, { trackNum, dirPath }) => {
 let bpmFilterTrack = 1; // 1 or 2, which track to compare against
 let currentStatusFilter = 'ALL'; // 'ALL', '✓', '⚠', '✗'
 let currentSearchQuery = '';
+let currentPlaylistFilter = '';
 let songAnalyzerQueue = Promise.resolve();
 let songAnalyzerGeneration = 0;
 const verifiedSongAnalysis = new Map();
@@ -7859,24 +7868,168 @@ function animateTrackWaveform(trackNum) {
   });
 }
 
+const NOTOMIXER_STEM_FILE_NAMES = new Set([
+  'main',
+  'vocals',
+  'vocal',
+  'instrumental',
+  'instrumentals',
+  'inst',
+  'accompaniment',
+  'bass',
+  'drums',
+  'guitar',
+  'keys',
+  'other',
+  'percussion',
+  'piano',
+  'strings',
+  'synth'
+]);
+
+function discoverSongLibrary() {
+  const entries = fs.readdirSync(workingDir, { withFileTypes: true });
+  const songs = [];
+  const playlists = [];
+
+  entries.forEach(entry => {
+    const entryPath = path.join(workingDir, entry.name);
+    if (entry.isFile()) {
+      if (SONG_AUDIO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        songs.push({
+          displayName: entry.name,
+          relativePath: entry.name,
+          playlist: ''
+        });
+      }
+      return;
+    }
+    if (!entry.isDirectory()) return;
+
+    let childAudioFiles = [];
+    try {
+      childAudioFiles = fs.readdirSync(entryPath, { withFileTypes: true })
+        .filter(child => (
+          child.isFile()
+          && SONG_AUDIO_EXTENSIONS.has(path.extname(child.name).toLowerCase())
+        ))
+        .map(child => child.name);
+    } catch (error) {
+      // Preserve the old behavior for unreadable directories: keep them in
+      // the library and let the analyzer report that they cannot be read.
+      songs.push({
+        displayName: entry.name,
+        relativePath: entry.name,
+        playlist: ''
+      });
+      return;
+    }
+
+    const isStemSong = childAudioFiles.some(fileName => (
+      NOTOMIXER_STEM_FILE_NAMES.has(
+        path.basename(fileName, path.extname(fileName)).toLowerCase()
+      )
+    ));
+
+    if (childAudioFiles.length > 0 && !isStemSong) {
+      playlists.push(entry.name);
+      childAudioFiles.forEach(fileName => {
+        songs.push({
+          displayName: fileName,
+          relativePath: path.join(entry.name, fileName),
+          playlist: entry.name
+        });
+      });
+      return;
+    }
+
+    // A folder containing main/vocals/etc. remains one NotoMixer multi-stem
+    // song. Empty folders are also retained for backwards compatibility.
+    songs.push({
+      displayName: entry.name,
+      relativePath: entry.name,
+      playlist: ''
+    });
+  });
+
+  songs.sort((a, b) => (
+    a.displayName.localeCompare(b.displayName)
+    || a.relativePath.localeCompare(b.relativePath)
+  ));
+  playlists.sort((a, b) => a.localeCompare(b));
+  return { songs, playlists };
+}
+
+function renderPlaylistNavigation(playlists) {
+  const playlistList = document.getElementById('playlist-folder-list');
+  if (!playlistList) return;
+
+  if (
+    currentPlaylistFilter !== ''
+    && !playlists.includes(currentPlaylistFilter)
+  ) {
+    currentPlaylistFilter = '';
+  }
+
+  playlistList.innerHTML = '';
+  const choices = [
+    { id: '', label: 'SHOW ALL' },
+    ...playlists.map(playlist => ({ id: playlist, label: playlist }))
+  ];
+
+  choices.forEach(choice => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'playlist-folder-button';
+    button.dataset.playlist = choice.id;
+    button.classList.toggle('active', choice.id === currentPlaylistFilter);
+    button.setAttribute(
+      'aria-pressed',
+      choice.id === currentPlaylistFilter ? 'true' : 'false'
+    );
+
+    const icon = document.createElement('span');
+    icon.className = 'playlist-folder-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = choice.label;
+    button.appendChild(icon);
+    button.appendChild(label);
+
+    button.addEventListener('click', () => {
+      currentPlaylistFilter = choice.id;
+      playlistList.querySelectorAll('.playlist-folder-button').forEach(item => {
+        const active = item.dataset.playlist === currentPlaylistFilter;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      applySongListFilters();
+    });
+    playlistList.appendChild(button);
+  });
+}
+
 function applySongListFilters() {
   const songsList = document.getElementById('songs-list');
   if (!songsList) return;
-  
-  const items = Array.from(songsList.querySelectorAll('li'));
-  // Don't sort the placeholder
-  if (items.length === 1 && items[0].classList.contains('song-list-placeholder')) return;
+
+  const items = Array.from(songsList.querySelectorAll('li[data-folder]'));
+  const emptyPlaceholder = document.getElementById('song-filter-empty');
+  if (items.length === 0) return;
 
   const query = currentSearchQuery.toLowerCase();
-  
-  // 1. Filter by search query
+
+  // 1. Filter by selected playlist and search query.
+  let visibleCount = 0;
   items.forEach(li => {
-    const folderName = li.dataset.folder || '';
-    if (folderName.toLowerCase().includes(query)) {
-      li.style.display = 'flex';
-    } else {
-      li.style.display = 'none';
-    }
+    const matchesPlaylist = currentPlaylistFilter === ''
+      || li.dataset.playlist === currentPlaylistFilter;
+    const matchesSearch = (li.dataset.searchText || li.dataset.folder || '')
+      .toLowerCase()
+      .includes(query);
+    const visible = matchesPlaylist && matchesSearch;
+    li.style.display = visible ? 'flex' : 'none';
+    if (visible) visibleCount += 1;
   });
 
   // 2. Sort by status
@@ -7900,13 +8053,21 @@ function applySongListFilters() {
   } else {
     // Revert to alphabetical sort
     items.sort((a, b) => {
-      const nameA = (a.dataset.folder || '').toLowerCase();
-      const nameB = (b.dataset.folder || '').toLowerCase();
+      const nameA = (a.dataset.songName || a.dataset.folder || '').toLowerCase();
+      const nameB = (b.dataset.songName || b.dataset.folder || '').toLowerCase();
       if (nameA < nameB) return -1;
       if (nameA > nameB) return 1;
       return 0;
     });
     items.forEach(li => songsList.appendChild(li));
+  }
+
+  if (emptyPlaceholder) {
+    emptyPlaceholder.hidden = visibleCount > 0;
+    emptyPlaceholder.textContent = query
+      ? 'No songs match this search'
+      : 'No songs in this playlist';
+    songsList.appendChild(emptyPlaceholder);
   }
 }
 
@@ -7956,10 +8117,12 @@ function scanWorkingDirectory() {
   if (!songsList) return;
   const analyzerGeneration = ++songAnalyzerGeneration;
   const analysisJobs = [];
-  
+
   songsList.innerHTML = '';
-  
+
   if (!workingDir) {
+    currentPlaylistFilter = '';
+    renderPlaylistNavigation([]);
     songsList.innerHTML = '<li class="song-list-placeholder">No folder selected</li>';
     songAnalyzerUiState = {
       generation: analyzerGeneration,
@@ -7973,15 +8136,9 @@ function scanWorkingDirectory() {
   }
 
   try {
-    const files = fs.readdirSync(workingDir, { withFileTypes: true });
-    const audioExtensions = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a'];
-    
-    const songItems = files.filter(f => {
-      if (f.isDirectory()) return true;
-      const ext = path.extname(f.name).toLowerCase();
-      return f.isFile() && audioExtensions.includes(ext);
-    }).map(f => f.name);
-    
+    const { songs: songItems, playlists } = discoverSongLibrary();
+    renderPlaylistNavigation(playlists);
+
     if (songItems.length === 0) {
       songsList.innerHTML = '<li class="song-list-placeholder">No songs or folders found</li>';
       songAnalyzerUiState = {
@@ -7997,32 +8154,38 @@ function scanWorkingDirectory() {
 
     beginSongAnalyzerDaemon(songItems.length, analyzerGeneration);
 
-    songItems.forEach(folderName => {
+    songItems.forEach(songItem => {
+      const songPath = path.join(workingDir, songItem.relativePath);
       const li = document.createElement('li');
       li.setAttribute('draggable', 'true');
-      li.dataset.folder = folderName;
-      
+      li.dataset.folder = songItem.relativePath;
+      li.dataset.songName = songItem.displayName;
+      li.dataset.playlist = songItem.playlist;
+      li.dataset.searchText = `${songItem.displayName} ${songItem.playlist}`.trim();
+      li.title = songItem.playlist
+        ? `${songItem.playlist} / ${songItem.displayName}`
+        : songItem.displayName;
+
       // 1. Artwork thumbnail
       const artDiv = document.createElement('div');
       artDiv.className = 'song-item-art';
       const artImg = document.createElement('img');
       artImg.className = 'song-art-img';
-      
+
       // Try to find cover art inside song folder
       let artSrc = DEFAULT_COVER_ART_URI;
       try {
-        const sPath = path.join(workingDir, folderName);
-        const sStats = fs.statSync(sPath);
+        const sStats = fs.statSync(songPath);
         if (sStats.isDirectory()) {
-          const sFiles = fs.readdirSync(sPath);
+          const sFiles = fs.readdirSync(songPath);
           const imgFile = sFiles.find(file => {
             const ext = path.extname(file).toLowerCase();
             const nameLc = path.basename(file, ext).toLowerCase();
-            return ['.jpg', '.jpeg', '.png', '.gif'].includes(ext) && 
+            return ['.jpg', '.jpeg', '.png', '.gif'].includes(ext) &&
                    (nameLc.includes('cover') || nameLc.includes('art') || nameLc.includes('folder') || nameLc.includes('thumb') || nameLc.includes('artwork'));
           });
           if (imgFile) {
-            artSrc = path.join(sPath, imgFile);
+            artSrc = path.join(songPath, imgFile);
           }
         }
       } catch (err) {}
@@ -8036,7 +8199,7 @@ function scanWorkingDirectory() {
       waveCanvas.width = 140;
       waveCanvas.height = 22;
       li.appendChild(waveCanvas);
-      
+
       // Initial flat waveform line placeholder
       const wCtx = waveCanvas.getContext('2d');
       wCtx.fillStyle = '#333';
@@ -8044,31 +8207,31 @@ function scanWorkingDirectory() {
 
       const nameSpan = document.createElement('span');
       nameSpan.className = 'song-item-name';
-      nameSpan.textContent = folderName;
+      nameSpan.textContent = songItem.displayName;
       li.appendChild(nameSpan);
-      
+
       const metaDiv = document.createElement('div');
       metaDiv.className = 'song-item-meta';
 
       const bpmCompatIcon = document.createElement('span');
       bpmCompatIcon.className = 'bpm-compat-icon unknown';
       bpmCompatIcon.textContent = '·';
-      
+
       const bpmSpan = document.createElement('span');
       bpmSpan.className = 'song-item-bpm';
       bpmSpan.textContent = '-- BPM';
-      
+
       const durSpan = document.createElement('span');
       durSpan.className = 'song-item-duration';
       durSpan.textContent = '--:--';
-      
+
       metaDiv.appendChild(bpmCompatIcon);
       metaDiv.appendChild(bpmSpan);
       metaDiv.appendChild(durSpan);
       li.appendChild(metaDiv);
-      
+
       li.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/plain', folderName);
+        e.dataTransfer.setData('text/plain', songItem.relativePath);
         e.dataTransfer.effectAllowed = 'copy';
       });
 
@@ -8076,9 +8239,7 @@ function scanWorkingDirectory() {
       li.addEventListener('auxclick', (e) => {
         if (e.button === 1) { // 1 is middle click
           e.preventDefault();
-          const folderName = li.dataset.folder;
-          const fullPath = path.join(workingDir, folderName);
-          loadPreviewSong(fullPath, folderName);
+          loadPreviewSong(songPath, songItem.displayName);
         }
       });
 
@@ -8088,13 +8249,13 @@ function scanWorkingDirectory() {
           e.preventDefault();
         }
       });
-      
+
       songsList.appendChild(li);
 
       // Queue metadata analysis in the background daemon.
       analysisJobs.push(
         loadSongMetadata(
-          path.join(workingDir, folderName),
+          songPath,
           bpmSpan,
           durSpan,
           waveCanvas,
@@ -8103,8 +8264,18 @@ function scanWorkingDirectory() {
         )
       );
     });
-    
-    logConsole(`Explorer: Found ${songItems.length} songs/folders in ${workingDir}`, 'system');
+
+    const emptyPlaceholder = document.createElement('li');
+    emptyPlaceholder.id = 'song-filter-empty';
+    emptyPlaceholder.className = 'song-list-placeholder';
+    emptyPlaceholder.hidden = true;
+    songsList.appendChild(emptyPlaceholder);
+    applySongListFilters();
+
+    logConsole(
+      `Explorer: Found ${songItems.length} songs in ${playlists.length} playlists/folders in ${workingDir}`,
+      'system'
+    );
     logConsole(`NotoMixer Song Analyzer Daemon: checking ${songItems.length} song MD5 hashes`, 'system');
     Promise.allSettled(analysisJobs).then(results => {
       if (analyzerGeneration !== songAnalyzerGeneration) return;
@@ -8117,6 +8288,8 @@ function scanWorkingDirectory() {
     });
   } catch (err) {
     logConsole(`Err Explorer: Folder read failed: ${err.message}`, 'err');
+    currentPlaylistFilter = '';
+    renderPlaylistNavigation([]);
     songsList.innerHTML = `<li class="song-list-placeholder text-red">Read error</li>`;
     songAnalyzerUiState = {
       generation: analyzerGeneration,
@@ -8451,6 +8624,7 @@ function loadSongMetadata(songPath, bpmElement, durElement, waveCanvas, artImg, 
 
 ipcRenderer.on('working-directory-selected', (event, dirPath) => {
   workingDir = dirPath;
+  currentPlaylistFilter = '';
   localStorage.setItem('notoMixer_workingDir', dirPath);
   persistUserSettings();
   document.getElementById('working-dir-path').textContent = dirPath;
