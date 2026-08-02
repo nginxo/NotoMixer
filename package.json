@@ -1,7 +1,7 @@
 {
-  "name": "noto-mixer",
-  "version": "1.0.0",
-  "description": "DJ Mixer connected to ESP32 via Serial",
+  "name": "notomixer",
+  "version": "1.1.0",
+  "description": "DJ app",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

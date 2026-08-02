@@ -11,6 +11,7 @@ function parseConfigBoolean(value, fallback) {
 function parseNotoMixerConfig(contents, appVersion = '0.0.0') {
   const parsed = {
     version: String(appVersion || '0.0.0'),
+    skipUpdateRequest: false,
     evaluation: false,
     errorJingle: true,
     noAudioLoadedFallback: true,
@@ -36,7 +37,15 @@ function parseNotoMixerConfig(contents, appVersion = '0.0.0') {
     const key = line.slice(0, separatorIndex).trim().toLowerCase();
     const value = line.slice(separatorIndex + 1).trim();
 
-    if (section === 'application information' && key === 'evaluation') {
+    if (
+      section === 'application information'
+      && key === 'skipupdate-request'
+    ) {
+      parsed.skipUpdateRequest = parseConfigBoolean(
+        value,
+        parsed.skipUpdateRequest
+      );
+    } else if (section === 'application information' && key === 'evaluation') {
       parsed.evaluation = parseConfigBoolean(value, parsed.evaluation);
     } else if (section === 'audio settings' && key === 'error-jingle') {
       parsed.errorJingle = parseConfigBoolean(value, parsed.errorJingle);

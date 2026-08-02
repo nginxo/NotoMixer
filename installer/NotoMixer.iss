@@ -2,7 +2,7 @@
 
 #define MyAppName "NotoMixer"
 #define MyAppPublisher "exertia Group"
-#define MyAppExeName "notoMixer.exe"
+#define MyAppExeName "NotoMixer.exe"
 #define MyAppId "{{D80E3626-2877-4CA5-8D33-5F130238484F}"
 
 #ifndef AppVersion
@@ -62,7 +62,7 @@ VersionInfoProductVersion={#AppVersion}
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Crea un collegamento sul &desktop"; GroupDescription: "Collegamenti:"; Flags: unchecked
+Name: "desktopicon"; Description: "Crea un collegamento sul &desktop"; GroupDescription: "Collegamenti:"
 
 [Files]
 Source: "..\dist\launcher\NotoMixer.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -83,7 +83,7 @@ Name: "{group}\NotoMixer"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}
 Name: "{autodesktop}\NotoMixer"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Avvia notoMixer"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Avvia NotoMixer"; Flags: nowait postinstall skipifsilent
 
 [Messages]
 SetupWindowTitle=Installazione di %1

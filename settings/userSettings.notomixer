@@ -4,7 +4,7 @@ explorer-layout=bottom
 explorer-height=191
 explorer-width=220
 stacked-waveform-height=247
-working-directory=C:\Users\Giorgio Gandolfo\Music
+working-directory=C:\
 
 [Audio Output]
 main-device=default
