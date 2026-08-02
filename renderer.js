@@ -2185,7 +2185,7 @@ function primeTrackScratchHandoff(
     const audio = stem.audio;
     audio.volume = 0;
     audio.currentTime = preRollPosition.time;
-    audio.preservesPitch = true;
+    audio.preservesPitch = false;
     audio.playbackRate = track.speedVal;
     audio.play().catch(() => {});
   });
@@ -2257,7 +2257,7 @@ function completeTrackScratch(session, { fadeSeconds = 0.1 } = {}) {
       const audio = stem.audio;
       audio.volume = 0;
       audio.currentTime = finalTime;
-      audio.preservesPitch = true;
+      audio.preservesPitch = false;
       audio.playbackRate = track.speedVal;
       return audio.play()
         .then(() => ({ audio, started: true }))
@@ -4059,7 +4059,7 @@ function drawKnobArc(element, percent) {
   element.setAttribute('d', d);
 }
 
-function updateKnobUI(trackNum, param, val) {
+function updateKnobUI(trackNum, param, val, { syncInput = true } = {}) {
   const knobFill = document.getElementById(`knob-${param}-${trackNum}-fill`);
   const knobPointer = document.getElementById(`knob-${param}-${trackNum}-pointer`);
   const valDisplay = document.getElementById(`val-${param}-${trackNum}`);
@@ -4068,7 +4068,7 @@ function updateKnobUI(trackNum, param, val) {
 
   // Sync the hidden range input value so that drag physics start from the correct value
   const input = document.getElementById(`${param}-${trackNum}`);
-  if (input) {
+  if (input && syncInput) {
     input.value = val;
   }
 
@@ -4078,7 +4078,8 @@ function updateKnobUI(trackNum, param, val) {
   if (param === 'bass' || param === 'low' || param === 'treb' || param === 'pitch') {
     percent = (val - (-12)) / (12 - (-12));
     if (param === 'pitch') {
-      formatted = `${val > 0 ? '+' : ''}${Math.round(val)} st`;
+      const displayPitch = Math.abs(val) < 0.05 ? 0 : val;
+      formatted = `${displayPitch > 0 ? '+' : ''}${displayPitch.toFixed(1)} st`;
     } else {
       formatted = `${val > 0 ? '+' : ''}${val.toFixed(1)} dB`;
     }
@@ -4112,6 +4113,7 @@ function updateKnobUI(trackNum, param, val) {
     formatted = `${Math.round(val)}%`;
   }
 
+  percent = Math.max(0, Math.min(1, percent));
   drawKnobArc(knobFill, percent);
 
   const angle = -135 + (percent * 270);
@@ -4120,6 +4122,23 @@ function updateKnobUI(trackNum, param, val) {
   if (valDisplay) {
     valDisplay.textContent = formatted;
   }
+}
+
+function getVinylPitchSemitones(playbackRate) {
+  const safeRate = Math.max(0.01, Number(playbackRate) || 1);
+  return 12 * Math.log2(safeRate);
+}
+
+function updateTrackPitchUI(trackNum) {
+  const track = tracks[trackNum];
+  if (!track) return;
+
+  const manualPitch = Number(track.pitchVal) || 0;
+  const input = document.getElementById(`pitch-${trackNum}`);
+  if (input) input.value = manualPitch;
+
+  const effectivePitch = manualPitch + getVinylPitchSemitones(track.speedVal);
+  updateKnobUI(trackNum, 'pitch', effectivePitch, { syncInput: false });
 }
 
 function updateVolUI(trackNum, val) {
@@ -5670,14 +5689,14 @@ function playTrack(trackNum) {
     
     // Play static stems
     if (track.stems.main.exists) {
-      track.stems.main.audio.preservesPitch = true;
+      track.stems.main.audio.preservesPitch = false;
       track.stems.main.audio.playbackRate = track.speedVal;
       track.stems.main.audio.play().catch(err => {
         logConsole(`Err: Cannot play main on track ${trackNum}: ${err.message}`, 'err');
       });
     }
     if (track.stems.vocals.exists) {
-      track.stems.vocals.audio.preservesPitch = true;
+      track.stems.vocals.audio.preservesPitch = false;
       track.stems.vocals.audio.playbackRate = track.speedVal;
       track.stems.vocals.audio.play().catch(err => {
         logConsole(`Err: Cannot play vocals on track ${trackNum}: ${err.message}`, 'err');
@@ -5685,7 +5704,7 @@ function playTrack(trackNum) {
     }
     // Play dynamic instrumental stems
     track.stems.inst.audios.forEach(item => {
-      item.audio.preservesPitch = true;
+      item.audio.preservesPitch = false;
       item.audio.playbackRate = track.speedVal;
       item.audio.play().catch(err => {
         logConsole(`Err: Cannot play ${item.file} on track ${trackNum}: ${err.message}`, 'err');
@@ -5906,6 +5925,10 @@ function setPitch(trackNum, value) {
   if (tracks[trackNum].isSynth) return;
   initAudio(trackNum);
   const track = tracks[trackNum];
+
+  value = Number(value);
+  if (!Number.isFinite(value)) return;
+  value = Math.max(-12, Math.min(12, value));
   
   // Snap very small values (close to 0) to exactly 0 (helps with analog noise and visual center snapping)
   if (Math.abs(value) < 0.05) {
@@ -5925,7 +5948,7 @@ function setPitch(trackNum, value) {
     updateAudioGraphConnections(trackNum);
   }
   
-  updateKnobUI(trackNum, 'pitch', value);
+  updateTrackPitchUI(trackNum);
 }
 
 function setSpeed(trackNum, value, options = {}) {
@@ -5934,21 +5957,23 @@ function setSpeed(trackNum, value, options = {}) {
   const track = tracks[trackNum];
   track.speedVal = value / 100; // factor, e.g. 0.5 to 2.0
   
-  // Set preservesPitch to true to keep key constant while speed changes
+  // Vinyl-style tempo changes: let pitch follow playback speed to avoid the
+  // metallic artifacts introduced by Chromium's real-time pitch preservation.
   if (track.stems.main.exists) {
-    track.stems.main.audio.preservesPitch = true;
+    track.stems.main.audio.preservesPitch = false;
     track.stems.main.audio.playbackRate = track.speedVal;
   }
   if (track.stems.vocals.exists) {
-    track.stems.vocals.audio.preservesPitch = true;
+    track.stems.vocals.audio.preservesPitch = false;
     track.stems.vocals.audio.playbackRate = track.speedVal;
   }
   track.stems.inst.audios.forEach(item => {
-    item.audio.preservesPitch = true;
+    item.audio.preservesPitch = false;
     item.audio.playbackRate = track.speedVal;
   });
   
   updateKnobUI(trackNum, 'speed', value);
+  updateTrackPitchUI(trackNum);
   
   if (track.bpmVal) {
     const bpmInput = document.getElementById(`bpm-${trackNum}`);
@@ -6896,7 +6921,7 @@ function setupUIListeners() {
     // Pitch, Speed, Echo knobs input listeners
     const pitchSlider = document.getElementById(`pitch-${trackNum}`);
     pitchSlider.addEventListener('input', (e) => {
-      setPitch(trackNum, parseInt(e.target.value));
+      setPitch(trackNum, parseFloat(e.target.value));
     });
     updateKnobUI(trackNum, 'pitch', 0);
 
@@ -7749,7 +7774,7 @@ function loadDirectoryStems(trackNum, dirPath) {
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
       track.stems.main.audio.src = URL.createObjectURL(blob);
-      track.stems.main.audio.preservesPitch = true;
+      track.stems.main.audio.preservesPitch = false;
       track.stems.main.audio.playbackRate = track.speedVal;
       track.stems.main.audio.load();
       track.stems.main.exists = true;
@@ -7781,7 +7806,7 @@ function loadDirectoryStems(trackNum, dirPath) {
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
       track.stems.vocals.audio.src = URL.createObjectURL(blob);
-      track.stems.vocals.audio.preservesPitch = true;
+      track.stems.vocals.audio.preservesPitch = false;
       track.stems.vocals.audio.playbackRate = track.speedVal;
       track.stems.vocals.audio.load();
       track.stems.vocals.exists = true;
@@ -7820,7 +7845,7 @@ function loadDirectoryStems(trackNum, dirPath) {
         audio.src = url;
         audio.style.display = 'none';
         document.body.appendChild(audio); // Append to DOM to prevent Chromium silence bug
-        audio.preservesPitch = true;
+        audio.preservesPitch = false;
         audio.playbackRate = track.speedVal;
         audio.load();
         
@@ -11743,7 +11768,7 @@ function loadPreviewSong(dirPath, folderName) {
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
       previewStems.main.audio.src = URL.createObjectURL(blob);
-      previewStems.main.audio.preservesPitch = true;
+      previewStems.main.audio.preservesPitch = false;
       previewStems.main.audio.playbackRate = prevSpeedVal;
       previewStems.main.audio.load();
       previewStems.main.exists = true;
@@ -11767,7 +11792,7 @@ function loadPreviewSong(dirPath, folderName) {
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
       previewStems.vocals.audio.src = URL.createObjectURL(blob);
-      previewStems.vocals.audio.preservesPitch = true;
+      previewStems.vocals.audio.preservesPitch = false;
       previewStems.vocals.audio.playbackRate = prevSpeedVal;
       previewStems.vocals.audio.load();
       previewStems.vocals.exists = true;
@@ -11797,7 +11822,7 @@ function loadPreviewSong(dirPath, folderName) {
         audio.src = url;
         audio.style.display = 'none';
         document.body.appendChild(audio);
-        audio.preservesPitch = true;
+        audio.preservesPitch = false;
         audio.playbackRate = prevSpeedVal;
         audio.load();
         
@@ -12105,7 +12130,7 @@ function stopPreviewMetronome() {
   }
 }
 
-function updatePrevKnobUI(param, val) {
+function updatePrevKnobUI(param, val, { syncInput = true } = {}) {
   const knobFill = document.getElementById(`knob-prev-${param}-fill`);
   const knobPointer = document.getElementById(`knob-prev-${param}-pointer`);
   const valDisplay = document.getElementById(`val-prev-${param}`);
@@ -12113,7 +12138,7 @@ function updatePrevKnobUI(param, val) {
   if (!knobFill || !knobPointer) return;
 
   const input = document.getElementById(`prev-${param}`);
-  if (input) {
+  if (input && syncInput) {
     input.value = val;
   }
 
@@ -12123,7 +12148,8 @@ function updatePrevKnobUI(param, val) {
   if (param === 'bass' || param === 'low' || param === 'treb' || param === 'pitch') {
     percent = (val - (-12)) / (12 - (-12));
     if (param === 'pitch') {
-      formatted = `${val > 0 ? '+' : ''}${Math.round(val)} st`;
+      const displayPitch = Math.abs(val) < 0.05 ? 0 : val;
+      formatted = `${displayPitch > 0 ? '+' : ''}${displayPitch.toFixed(1)} st`;
     } else {
       formatted = `${val > 0 ? '+' : ''}${val.toFixed(1)} dB`;
     }
@@ -12156,12 +12182,21 @@ function updatePrevKnobUI(param, val) {
     formatted = `${Math.round(val)}%`;
   }
 
+  percent = Math.max(0, Math.min(1, percent));
   drawKnobArc(knobFill, percent);
   const angle = -135 + (percent * 270);
   knobPointer.setAttribute('transform', `rotate(${angle} 20 20)`);
   if (valDisplay) {
     valDisplay.textContent = formatted;
   }
+}
+
+function updatePreviewPitchUI() {
+  const input = document.getElementById('prev-pitch');
+  if (input) input.value = prevPitchVal;
+
+  const effectivePitch = prevPitchVal + getVinylPitchSemitones(prevSpeedVal);
+  updatePrevKnobUI('pitch', effectivePitch, { syncInput: false });
 }
 
 function setupPrevKnobDrag(param) {
@@ -13087,6 +13122,9 @@ function initInAppPreview() {
         else if (param === 'echotime') prevEchoTimeVal = val;
         
         updatePrevKnobUI(param, val);
+        if (param === 'pitch' || param === 'speed') {
+          updatePreviewPitchUI();
+        }
         applyPreviewFilters();
       });
       
@@ -13094,6 +13132,7 @@ function initInAppPreview() {
       setupPrevKnobDrag(param);
     }
   });
+  updatePreviewPitchUI();
 
   for (let i = 0; i < 8; i++) {
     const btn = document.getElementById(`prev-sound-btn-${i}`);
@@ -13376,7 +13415,7 @@ function setupCanvasScratching(trackNum, canvas) {
       stems.forEach(stem => {
         stem.audio.volume = 0;
         stem.audio.currentTime = finalTime;
-        stem.audio.preservesPitch = true;
+        stem.audio.preservesPitch = false;
         stem.audio.playbackRate = track.speedVal;
         stem.audio.play().then(() => {
           let startFade = performance.now();
