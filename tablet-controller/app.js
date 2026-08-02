@@ -3,6 +3,16 @@ const connectionState = document.querySelector('.connection-state');
 const connectionLabel = document.getElementById('connection-label');
 let socket = null;
 let reconnectTimer = null;
+let tabletLibrary = { playlists: [], songs: [] };
+let activeSongSelectorTrack = null;
+const songSelectorStates = new Map();
+const songSelectorClickGuardMs = 500;
+const bpmFilterStates = [
+  { id: 'ALL', label: 'ALL' },
+  { id: 'MATCH', label: '\u2713' },
+  { id: 'WARN', label: '\u26A0' },
+  { id: 'FAR', label: '\u2715' }
+];
 const jogPhysics = {
   maxSpeed: 16,
   inertiaSeconds: 0.7
@@ -13,6 +23,13 @@ function formatTime(seconds) {
   const minutes = Math.floor(seconds / 60);
   const remainder = Math.floor(seconds % 60);
   return `${minutes}:${String(remainder).padStart(2, '0')}`;
+}
+
+function getSongDisplayTitle(title) {
+  return String(title || 'UNTITLED').replace(
+    /\.(mp3|wav|ogg|aac|flac|m4a)$/i,
+    ''
+  );
 }
 
 function createCueButtons(trackNum) {
@@ -81,6 +98,289 @@ function setupTransportButtons(trackNum) {
   });
 }
 
+function getSongBpmCompatibility(songBpm, referenceBpm) {
+  if (!Number.isFinite(songBpm) || !Number.isFinite(referenceBpm)) {
+    return 'UNKNOWN';
+  }
+  const difference = Math.abs(songBpm - referenceBpm);
+  if (difference <= 5) return 'MATCH';
+  if (difference <= 20) return 'WARN';
+  return 'FAR';
+}
+
+function getBpmCompatibilityLabel(compatibility) {
+  if (compatibility === 'MATCH') return '\u2713';
+  if (compatibility === 'WARN') return '\u26A0';
+  if (compatibility === 'FAR') return '\u2715';
+  return '\u00B7';
+}
+
+function updateSongSelectorFilters(trackNum) {
+  const state = songSelectorStates.get(trackNum);
+  const bpmButton = document.getElementById(`song-selector-bpm-filter-${trackNum}`);
+  const statusButton = document.getElementById(`song-selector-status-filter-${trackNum}`);
+  if (!state || !bpmButton || !statusButton) return;
+  const filter = bpmFilterStates.find(item => item.id === state.bpmFilter) || bpmFilterStates[0];
+  const bpmTrackValue = bpmButton.querySelector('strong');
+  if (bpmTrackValue) bpmTrackValue.textContent = String(state.bpmTrack);
+  bpmButton.dataset.track = String(state.bpmTrack);
+  bpmButton.title = `Use Track ${state.bpmTrack} as the BPM reference`;
+  statusButton.textContent = filter.label;
+  statusButton.dataset.status = filter.id;
+  statusButton.title = `Sort by BPM compatibility with Track ${state.bpmTrack}`;
+}
+
+function toggleSongSelectorBpmTrack(trackNum) {
+  const state = songSelectorStates.get(trackNum);
+  if (!state) return;
+  state.bpmTrack = state.bpmTrack === 1 ? 2 : 1;
+  updateSongSelectorFilters(trackNum);
+  renderSongSelector(trackNum);
+}
+
+function cycleSongSelectorStatusFilter(trackNum) {
+  const state = songSelectorStates.get(trackNum);
+  if (!state) return;
+  const currentIndex = bpmFilterStates.findIndex(item => item.id === state.bpmFilter);
+  state.bpmFilter = bpmFilterStates[(currentIndex + 1) % bpmFilterStates.length].id;
+  updateSongSelectorFilters(trackNum);
+  renderSongSelector(trackNum);
+}
+
+function createSongSelectorMetric(label, value, className) {
+  const metric = document.createElement('span');
+  metric.className = `song-selector-metric ${className}`;
+  const metricLabel = document.createElement('span');
+  metricLabel.className = 'song-selector-metric-label';
+  metricLabel.textContent = label;
+  const metricValue = document.createElement('span');
+  metricValue.className = 'song-selector-metric-value';
+  metricValue.textContent = value;
+  metric.appendChild(metricLabel);
+  metric.appendChild(metricValue);
+  return { metric, metricValue };
+}
+
+function renderSongSelector(trackNum) {
+  const selector = document.getElementById(`song-selector-${trackNum}`);
+  const list = document.getElementById(`song-selector-list-${trackNum}`);
+  const search = document.getElementById(`song-selector-search-${trackNum}`);
+  const playlist = document.getElementById(`song-selector-playlist-${trackNum}`);
+  if (!selector || !list || !search || !playlist) return;
+
+  const state = songSelectorStates.get(trackNum);
+  const referenceBpm = trackViews.get(state?.bpmTrack || 1)?.bpm;
+  const selectedPlaylist = playlist.value;
+  const query = search.value.trim().toLowerCase();
+  const filteredSongs = tabletLibrary.songs
+    .map(song => ({
+      song,
+      compatibility: getSongBpmCompatibility(song.bpm, referenceBpm)
+    }))
+    .filter(({ song }) => {
+      const matchesPlaylist = !selectedPlaylist || song.playlist === selectedPlaylist;
+      const haystack = `${song.title || ''} ${song.playlist || ''} ${song.key || ''}`.toLowerCase();
+      return matchesPlaylist && haystack.includes(query);
+    });
+
+  if (state?.bpmFilter && state.bpmFilter !== 'ALL') {
+    filteredSongs.sort((left, right) => (
+      Number(right.compatibility === state.bpmFilter)
+      - Number(left.compatibility === state.bpmFilter)
+    ));
+  }
+
+  updateSongSelectorFilters(trackNum);
+
+  list.replaceChildren();
+  if (filteredSongs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'song-selector-empty';
+    empty.textContent = tabletLibrary.songs.length === 0
+      ? 'NO SONGS AVAILABLE'
+      : 'NO MATCHING SONGS';
+    list.appendChild(empty);
+    return;
+  }
+
+  filteredSongs.forEach(({ song, compatibility }) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'song-selector-item';
+
+    const artwork = document.createElement('span');
+    artwork.className = 'song-selector-artwork';
+    artwork.classList.toggle('no-cover', song.hasCover !== true);
+    const artworkImage = document.createElement('img');
+    artworkImage.alt = '';
+    artworkImage.loading = 'lazy';
+    artworkImage.decoding = 'async';
+    artworkImage.src = `/library-cover?id=${encodeURIComponent(song.id)}`;
+    artwork.appendChild(artworkImage);
+
+    const content = document.createElement('div');
+    content.className = 'song-selector-item-content';
+    const title = document.createElement('strong');
+    title.textContent = getSongDisplayTitle(song.title);
+    const folder = document.createElement('span');
+    folder.className = 'song-selector-folder';
+    folder.textContent = song.playlist || 'ROOT';
+
+    const metrics = document.createElement('div');
+    metrics.className = 'song-selector-metrics';
+    const keyMetric = createSongSelectorMetric('KEY', song.key || '--', 'key');
+    const bpmMetric = createSongSelectorMetric(
+      'BPM',
+      Number.isFinite(song.bpm) ? String(Math.round(song.bpm)) : '--',
+      'bpm'
+    );
+    const durationMetric = createSongSelectorMetric(
+      'DURATION',
+      Number.isFinite(song.duration) ? formatTime(song.duration) : '--:--',
+      'duration'
+    );
+    const compatIcon = document.createElement('span');
+    compatIcon.className = `song-selector-compat ${compatibility.toLowerCase()}`;
+    compatIcon.textContent = getBpmCompatibilityLabel(compatibility);
+    bpmMetric.metricValue.appendChild(compatIcon);
+    metrics.appendChild(keyMetric.metric);
+    metrics.appendChild(bpmMetric.metric);
+    metrics.appendChild(durationMetric.metric);
+    content.appendChild(title);
+    content.appendChild(folder);
+    button.appendChild(artwork);
+    button.appendChild(content);
+    button.appendChild(metrics);
+    button.addEventListener('click', () => {
+      sendMessage({ type: 'loadSong', trackNum, songId: song.id });
+      closeSongSelector(trackNum);
+    });
+    list.appendChild(button);
+  });
+}
+
+function updateSongSelectorPlaylists(trackNum) {
+  const playlist = document.getElementById(`song-selector-playlist-${trackNum}`);
+  if (!playlist) return;
+  const previousValue = playlist.value;
+  playlist.replaceChildren();
+
+  const allOption = document.createElement('option');
+  allOption.value = '';
+  allOption.textContent = 'SHOW ALL';
+  playlist.appendChild(allOption);
+  tabletLibrary.playlists.forEach(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    playlist.appendChild(option);
+  });
+  playlist.value = tabletLibrary.playlists.includes(previousValue)
+    ? previousValue
+    : '';
+}
+
+function closeSongSelector(trackNum = activeSongSelectorTrack) {
+  if (trackNum !== 1 && trackNum !== 2) return;
+  const selector = document.getElementById(`song-selector-${trackNum}`);
+  const state = songSelectorStates.get(trackNum);
+  if (state) clearTimeout(state.openingTimer);
+  if (selector) {
+    if (selector.contains(document.activeElement)) document.activeElement.blur();
+    selector.hidden = true;
+    selector.classList.remove('opening');
+  }
+  if (activeSongSelectorTrack === trackNum) activeSongSelectorTrack = null;
+}
+
+function openSongSelector(trackNum) {
+  [1, 2].forEach(candidate => {
+    if (candidate !== trackNum) closeSongSelector(candidate);
+  });
+  const selector = document.getElementById(`song-selector-${trackNum}`);
+  const search = document.getElementById(`song-selector-search-${trackNum}`);
+  if (!selector) return;
+  const state = songSelectorStates.get(trackNum);
+  activeSongSelectorTrack = trackNum;
+  selector.hidden = false;
+  selector.classList.add('opening');
+  if (state) {
+    state.openedAt = performance.now();
+    clearTimeout(state.openingTimer);
+    state.openingTimer = setTimeout(() => {
+      selector.classList.remove('opening');
+    }, songSelectorClickGuardMs);
+  }
+  if (search) search.value = '';
+  updateSongSelectorPlaylists(trackNum);
+  renderSongSelector(trackNum);
+  sendMessage({ type: 'requestLibrary' });
+}
+
+function createSongSelector(trackNum) {
+  const deck = document.querySelector(`.deck[data-track="${trackNum}"]`);
+  if (!deck) return;
+  songSelectorStates.set(trackNum, {
+    bpmFilter: 'ALL',
+    bpmTrack: 1,
+    openedAt: 0,
+    openingTimer: null
+  });
+  const selector = document.createElement('div');
+  selector.id = `song-selector-${trackNum}`;
+  selector.className = 'song-selector';
+  selector.hidden = true;
+  selector.innerHTML = `
+    <header class="song-selector-header">
+      <div class="song-selector-heading"><span>TRACK ${trackNum}</span><strong>AVAILABLE SONGS</strong></div>
+      <div class="song-selector-header-actions">
+        <div class="song-selector-current-bpm">
+          <span>BPM</span><strong id="song-selector-current-bpm-${trackNum}">--</strong>
+        </div>
+        <button type="button" class="song-selector-close" aria-label="Close song selector">CLOSE</button>
+      </div>
+    </header>
+    <div class="song-selector-controls">
+      <input id="song-selector-search-${trackNum}" type="search" placeholder="SEARCH SONGS..." autocomplete="off">
+      <select id="song-selector-playlist-${trackNum}" aria-label="Playlist"><option value="">SHOW ALL</option></select>
+      <button id="song-selector-status-filter-${trackNum}" class="song-selector-status-filter" type="button" data-status="ALL" aria-label="Sort by BPM compatibility">ALL</button>
+      <button id="song-selector-bpm-filter-${trackNum}" class="song-selector-bpm-filter" type="button" data-track="1">
+        <span>FILTER BPM</span><strong>1</strong>
+      </button>
+    </div>
+    <div class="song-selector-list" id="song-selector-list-${trackNum}"></div>
+  `;
+  deck.appendChild(selector);
+
+  selector.addEventListener('click', event => {
+    const state = songSelectorStates.get(trackNum);
+    if (
+      event.target.closest('.song-selector-item')
+      && state
+      && performance.now() - state.openedAt < songSelectorClickGuardMs
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
+
+  selector.querySelector('.song-selector-close').addEventListener('click', () => {
+    closeSongSelector(trackNum);
+  });
+  selector.querySelector(`#song-selector-search-${trackNum}`).addEventListener('input', () => {
+    renderSongSelector(trackNum);
+  });
+  selector.querySelector(`#song-selector-playlist-${trackNum}`).addEventListener('change', () => {
+    renderSongSelector(trackNum);
+  });
+  selector.querySelector(`#song-selector-bpm-filter-${trackNum}`).addEventListener('click', () => {
+    toggleSongSelectorBpmTrack(trackNum);
+  });
+  selector.querySelector(`#song-selector-status-filter-${trackNum}`).addEventListener('click', () => {
+    cycleSongSelectorStatusFilter(trackNum);
+  });
+}
+
 function getPointerAngle(event, element) {
   const rect = element.getBoundingClientRect();
   const centerX = rect.left + rect.width / 2;
@@ -120,6 +420,8 @@ function setupJog(trackNum) {
     mediaTime: 0,
     receivedAt: performance.now(),
     playing: false,
+    loading: false,
+    bpm: null,
     speed: 1,
     rotation: 0,
     angularVelocity: 0,
@@ -127,7 +429,12 @@ function setupJog(trackNum) {
     scratching: false,
     coasting: false,
     lastMoveAt: performance.now(),
-    coverVersion: -1
+    coverVersion: -1,
+    pointerStartedAt: 0,
+    pointerStartX: 0,
+    pointerStartY: 0,
+    maxPointerTravel: 0,
+    lastTapAt: 0
   };
   trackViews.set(trackNum, view);
 
@@ -137,6 +444,10 @@ function setupJog(trackNum) {
     view.pointerId = event.pointerId;
     view.lastAngle = getPointerAngle(event, shell);
     view.lastMoveAt = performance.now();
+    view.pointerStartedAt = view.lastMoveAt;
+    view.pointerStartX = event.clientX;
+    view.pointerStartY = event.clientY;
+    view.maxPointerTravel = 0;
     view.angularVelocity = 0;
     view.jogVelocity = 0;
     view.scratching = true;
@@ -151,6 +462,13 @@ function setupJog(trackNum) {
   shell.addEventListener('pointermove', event => {
     if (!view.dragging || event.pointerId !== view.pointerId) return;
     event.preventDefault();
+    view.maxPointerTravel = Math.max(
+      view.maxPointerTravel,
+      Math.hypot(
+        event.clientX - view.pointerStartX,
+        event.clientY - view.pointerStartY
+      )
+    );
     const nextAngle = getPointerAngle(event, shell);
     const angleDelta = normalizeAngleDelta(nextAngle - view.lastAngle);
     view.lastAngle = nextAngle;
@@ -178,9 +496,13 @@ function setupJog(trackNum) {
     sendMessage({ type: 'jogMove', trackNum, deltaSeconds, elapsedMs });
   });
 
-  const releaseJog = event => {
+  const releaseJog = (event, allowTap = false) => {
     if (!view.dragging) return;
     if (event && event.pointerId !== view.pointerId) return;
+    const releasedAt = performance.now();
+    const wasTap = allowTap
+      && releasedAt - view.pointerStartedAt <= 280
+      && view.maxPointerTravel <= 12;
     view.dragging = false;
     view.pointerId = null;
     view.scratching = true;
@@ -189,10 +511,21 @@ function setupJog(trackNum) {
     shell.classList.remove('grabbed');
     shell.classList.add('coasting');
     sendMessage({ type: 'jogEnd', trackNum });
+
+    if (wasTap) {
+      if (releasedAt - view.lastTapAt <= 340) {
+        view.lastTapAt = 0;
+        openSongSelector(trackNum);
+      } else {
+        view.lastTapAt = releasedAt;
+      }
+    } else {
+      view.lastTapAt = 0;
+    }
   };
-  shell.addEventListener('pointerup', releaseJog);
-  shell.addEventListener('pointercancel', releaseJog);
-  shell.addEventListener('lostpointercapture', releaseJog);
+  shell.addEventListener('pointerup', event => releaseJog(event, true));
+  shell.addEventListener('pointercancel', event => releaseJog(event, false));
+  shell.addEventListener('lostpointercapture', event => releaseJog(event, false));
   shell.addEventListener('contextmenu', event => event.preventDefault());
 }
 
@@ -203,14 +536,21 @@ function renderTrack(track, index) {
 
   document.getElementById(`track-title-${trackNum}`).textContent =
     track.title || `TRACK ${trackNum} (EMPTY)`;
+  const previousBpm = view.bpm;
+  view.bpm = Number.isFinite(track.bpm) ? track.bpm : null;
   document.getElementById(`track-bpm-${trackNum}`).textContent =
-    Number.isFinite(track.bpm) ? Math.round(track.bpm) : '--';
+    Number.isFinite(view.bpm) ? Math.round(view.bpm) : '--';
+  const selectorBpm = document.getElementById(`song-selector-current-bpm-${trackNum}`);
+  if (selectorBpm) {
+    selectorBpm.textContent = Number.isFinite(view.bpm) ? Math.round(view.bpm) : '--';
+  }
 
   if (!view.dragging) {
     view.mediaTime = Number(track.mediaTime) || 0;
     view.receivedAt = performance.now();
   }
   view.playing = track.playing === true;
+  view.loading = track.loading === true;
   view.speed = Number(track.speed) || 1;
   view.scratching = track.scratching === true;
   view.coasting = track.coasting === true;
@@ -227,8 +567,17 @@ function renderTrack(track, index) {
   view.shell.classList.toggle('no-cover', track.hasCover !== true);
   const playButton = document.getElementById(`transport-play-${trackNum}`);
   if (playButton) {
-    playButton.classList.toggle('active', view.playing);
-    playButton.textContent = view.playing ? 'PAUSE' : 'PLAY';
+    playButton.classList.toggle('active', view.playing || view.loading);
+    playButton.textContent = view.loading ? 'LOADING' : view.playing ? 'PAUSE' : 'PLAY';
+  }
+
+  if (
+    (activeSongSelectorTrack === 1 || activeSongSelectorTrack === 2)
+    && songSelectorStates.get(activeSongSelectorTrack)?.bpmTrack === trackNum
+    && Number.isFinite(view.bpm)
+    && (!Number.isFinite(previousBpm) || Math.abs(previousBpm - view.bpm) >= 0.5)
+  ) {
+    renderSongSelector(trackNum);
   }
 
   const buttons = document.querySelectorAll(
@@ -264,6 +613,17 @@ function renderState(state) {
   state.tracks.forEach(renderTrack);
 }
 
+function receiveTabletLibrary(library) {
+  tabletLibrary = {
+    playlists: Array.isArray(library?.playlists) ? library.playlists : [],
+    songs: Array.isArray(library?.songs) ? library.songs : []
+  };
+  if (activeSongSelectorTrack === 1 || activeSongSelectorTrack === 2) {
+    updateSongSelectorPlaylists(activeSongSelectorTrack);
+    renderSongSelector(activeSongSelectorTrack);
+  }
+}
+
 function sendMessage(payload) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify(payload));
@@ -284,7 +644,12 @@ function connect() {
   });
   socket.addEventListener('message', event => {
     try {
-      renderState(JSON.parse(event.data));
+      const payload = JSON.parse(event.data);
+      if (payload?.type === 'library') {
+        receiveTabletLibrary(payload);
+      } else {
+        renderState(payload);
+      }
     } catch (error) {
       console.warn('Invalid NotoMixer state', error);
     }
@@ -324,6 +689,7 @@ function animateJogWheels(now) {
 [1, 2].forEach(trackNum => {
   createCueButtons(trackNum);
   setupTransportButtons(trackNum);
+  createSongSelector(trackNum);
   setupJog(trackNum);
 });
 connect();

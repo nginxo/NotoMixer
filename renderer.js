@@ -2573,6 +2573,7 @@ function buildTabletControllerState() {
         bpm: Number(track.bpmVal || 120) * Number(track.speedVal || 1),
         speed: Number(track.speedVal || 1),
         playing: track.isPlaying === true,
+        loading: track._playPending === true,
         scratching: Boolean(scratchSession),
         coasting: scratchSession?.coasting === true,
         jogVelocity: scratchSession
@@ -2602,6 +2603,66 @@ function publishTabletControllerState(force = false) {
   ipcRenderer.send(
     'tablet-controller:state',
     buildTabletControllerState()
+  );
+}
+
+function publishTabletSongLibrary() {
+  const songElements = Array.from(
+    document.querySelectorAll('#songs-list li[data-folder]')
+  );
+  const playlists = Array.from(
+    document.querySelectorAll('#playlist-folder-list [data-playlist]')
+  )
+    .map(element => element.dataset.playlist || '')
+    .filter(Boolean);
+  const songs = songElements.map(element => ({
+    id: element.dataset.folder || '',
+    title: element.dataset.songName || element.dataset.folder || '',
+    playlist: element.dataset.playlist || '',
+    coverPath: element.dataset.coverPath || '',
+    key: element.dataset.key || '',
+    bpm: Number.isFinite(Number(element.dataset.bpm))
+      ? Number(element.dataset.bpm)
+      : null,
+    duration: Number.isFinite(Number(element.dataset.duration))
+      ? Number(element.dataset.duration)
+      : null
+  }));
+  ipcRenderer.send('tablet-controller:library', { playlists, songs });
+}
+
+function loadTabletSelectedSong(payload) {
+  const trackNum = Number(payload?.trackNum);
+  const songId = typeof payload?.songId === 'string' ? payload.songId : '';
+  if ((trackNum !== 1 && trackNum !== 2) || !workingDir || !songId) return;
+
+  let selectedSong = null;
+  try {
+    selectedSong = discoverSongLibrary().songs.find(
+      song => song.relativePath === songId
+    );
+  } catch (error) {
+    logConsole(`Tablet: Unable to read song library (${error.message})`, 'err');
+    return;
+  }
+  if (!selectedSong) {
+    logConsole('Tablet: Rejected unavailable song selection', 'err');
+    return;
+  }
+
+  const libraryRoot = path.resolve(workingDir);
+  const selectedPath = path.resolve(libraryRoot, selectedSong.relativePath);
+  const relativeCheck = path.relative(libraryRoot, selectedPath);
+  if (relativeCheck.startsWith('..') || path.isAbsolute(relativeCheck)) {
+    logConsole('Tablet: Rejected song outside the working directory', 'err');
+    return;
+  }
+
+  loadDirectoryStems(trackNum, selectedPath);
+  publishTabletControllerState(true);
+  logConsole(
+    `Tablet: Loaded ${selectedSong.displayName} on Track ${trackNum}`,
+    'system'
   );
 }
 
@@ -2773,10 +2834,13 @@ function setupTabletControllerExtension() {
       publishTabletControllerState(true);
     } else if (payload?.type === 'cue') {
       handleTabletControllerCue(payload);
+    } else if (payload?.type === 'loadSong') {
+      loadTabletSelectedSong(payload);
     }
   });
 
   setInterval(() => publishTabletControllerState(), 100);
+  publishTabletSongLibrary();
 }
 
 function getMimeType(filePath) {
@@ -2984,6 +3048,10 @@ const tracks = {
     
     // State
     isPlaying: false,
+    _playPending: false,
+    _playRequestToken: 0,
+    _mediaLoadToken: 0,
+    _mediaReadyPromise: Promise.resolve({ loadToken: 0, results: [] }),
     isSynth: false,
     synthTimer: null,
     dirPath: '',
@@ -3082,6 +3150,10 @@ const tracks = {
     
     // State
     isPlaying: false,
+    _playPending: false,
+    _playRequestToken: 0,
+    _mediaLoadToken: 0,
+    _mediaReadyPromise: Promise.resolve({ loadToken: 0, results: [] }),
     isSynth: false,
     synthTimer: null,
     dirPath: '',
@@ -5638,14 +5710,103 @@ function quantizeAction(trackNum, action, label = 'action') {
   }, delayMs);
 }
 
-function playTrack(trackNum) {
+function getTrackMediaElements(trackNum) {
+  const track = tracks[trackNum];
+  const elements = [];
+  if (track.stems.main.exists) elements.push(track.stems.main.audio);
+  if (track.stems.vocals.exists) elements.push(track.stems.vocals.audio);
+  track.stems.inst.audios.forEach(item => elements.push(item.audio));
+  return elements;
+}
+
+function waitForMediaElementReady(audio, timeoutMs = 4000) {
+  if (!audio || audio.error) return Promise.resolve(false);
+  if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = ready => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      audio.removeEventListener('loadeddata', onReady);
+      audio.removeEventListener('canplay', onReady);
+      audio.removeEventListener('error', onError);
+      audio.removeEventListener('abort', onError);
+      resolve(ready);
+    };
+    const onReady = () => finish(true);
+    const onError = () => finish(false);
+    const timer = setTimeout(
+      () => finish(audio.readyState >= HTMLMediaElement.HAVE_METADATA && !audio.error),
+      timeoutMs
+    );
+    audio.addEventListener('loadeddata', onReady, { once: true });
+    audio.addEventListener('canplay', onReady, { once: true });
+    audio.addEventListener('error', onError, { once: true });
+    audio.addEventListener('abort', onError, { once: true });
+  });
+}
+
+function prepareTrackMediaReadiness(trackNum) {
+  const track = tracks[trackNum];
+  const loadToken = ++track._mediaLoadToken;
+  const mediaElements = getTrackMediaElements(trackNum);
+  track._mediaReadyPromise = Promise.all(
+    mediaElements.map(audio => waitForMediaElementReady(audio))
+  ).then(results => ({ loadToken, results }));
+  return track._mediaReadyPromise;
+}
+
+function playMediaElementWithTimeout(audio, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Playback start timed out')),
+      timeoutMs
+    );
+    Promise.resolve(audio.play()).then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function startMediaElementWithRetry(audio) {
+  try {
+    await playMediaElementWithTimeout(audio);
+    return true;
+  } catch (firstError) {
+    const ready = await waitForMediaElementReady(audio, 2500);
+    if (!ready) throw firstError;
+    const retryPosition = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    audio.currentTime = Math.max(0, retryPosition);
+    await playMediaElementWithTimeout(audio);
+    return true;
+  }
+}
+
+async function playTrack(trackNum) {
   cancelTrackWaveformReset(trackNum, true);
   initAudio(trackNum);
   const track = tracks[trackNum];
-  
+  const playRequestToken = ++track._playRequestToken;
+  track._playPending = true;
   if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
+    try {
+      await audioCtx.resume();
+    } catch (error) {
+      logConsole(`Audio: Unable to resume output context (${error.message})`, 'err');
+    }
   }
+  if (playRequestToken !== track._playRequestToken) return;
 
   let hasValidStems = false;
   if (track.stems.main.exists || track.stems.vocals.exists || track.stems.inst.exists) {
@@ -5653,6 +5814,7 @@ function playTrack(trackNum) {
   }
 
   if (!hasValidStems && !notoMixerConfig.noAudioLoadedFallback) {
+    track._playPending = false;
     track.isPlaying = false;
     logConsole(
       `Err: Track ${trackNum} has no loaded audio; fallback is disabled`,
@@ -5678,45 +5840,85 @@ function playTrack(trackNum) {
   }
 
   if (hasValidStems) {
-    track.isPlaying = true;
+    const playButton = document.getElementById(`btn-play-${trackNum}`);
+    if (playButton) playButton.textContent = 'LOADING';
 
-    skipOpeningSilenceIfNeeded(trackNum);
+    try {
+      const readiness = await track._mediaReadyPromise;
+      if (
+        playRequestToken !== track._playRequestToken
+        || readiness.loadToken !== track._mediaLoadToken
+      ) {
+        return;
+      }
+
+      const refAudio = getRefAudio(trackNum);
+      if (
+        refAudio
+        && Number.isFinite(refAudio.duration)
+        && refAudio.duration > 0
+        && (!Number.isFinite(refAudio.currentTime)
+          || refAudio.currentTime >= refAudio.duration - 0.05)
+      ) {
+        setTrackMediaTime(trackNum, 0);
+      }
+
+      skipOpeningSilenceIfNeeded(trackNum);
     
     // If sync is enabled, lock tempo and phase
-    if (track.syncEnabled) {
-      performBeatSync(trackNum);
-    }
+      if (track.syncEnabled) {
+        performBeatSync(trackNum);
+      }
     
-    // Play static stems
-    if (track.stems.main.exists) {
-      track.stems.main.audio.preservesPitch = false;
-      track.stems.main.audio.playbackRate = track.speedVal;
-      track.stems.main.audio.play().catch(err => {
-        logConsole(`Err: Cannot play main on track ${trackNum}: ${err.message}`, 'err');
+      const mediaElements = getTrackMediaElements(trackNum);
+      mediaElements.forEach(audio => {
+        audio.preservesPitch = false;
+        audio.playbackRate = track.speedVal;
       });
-    }
-    if (track.stems.vocals.exists) {
-      track.stems.vocals.audio.preservesPitch = false;
-      track.stems.vocals.audio.playbackRate = track.speedVal;
-      track.stems.vocals.audio.play().catch(err => {
-        logConsole(`Err: Cannot play vocals on track ${trackNum}: ${err.message}`, 'err');
-      });
-    }
-    // Play dynamic instrumental stems
-    track.stems.inst.audios.forEach(item => {
-      item.audio.preservesPitch = false;
-      item.audio.playbackRate = track.speedVal;
-      item.audio.play().catch(err => {
-        logConsole(`Err: Cannot play ${item.file} on track ${trackNum}: ${err.message}`, 'err');
-      });
-    });
+      const playResults = await Promise.allSettled(
+        mediaElements.map(audio => startMediaElementWithRetry(audio))
+      );
+      if (playRequestToken !== track._playRequestToken) {
+        mediaElements.forEach(audio => audio.pause());
+        return;
+      }
 
-    document.getElementById(`btn-play-${trackNum}`).classList.add('playing');
-    document.getElementById(`btn-play-${trackNum}`).textContent = 'PAUSE';
-    sendSerialMessage(`T${trackNum}:PLAYING:1`);
+      const startedCount = playResults.filter(result => result.status === 'fulfilled').length;
+      playResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          logConsole(
+            `Err: Cannot play media ${index + 1} on track ${trackNum}: ${result.reason?.message || result.reason}`,
+            'err'
+          );
+        }
+      });
+      if (startedCount === 0) throw new Error('No loaded media element could start playback');
+
+      track.isPlaying = true;
+      track._playPending = false;
+      if (track.syncEnabled) performBeatSync(trackNum);
+
+      document.getElementById(`btn-play-${trackNum}`).classList.add('playing');
+      document.getElementById(`btn-play-${trackNum}`).textContent = 'PAUSE';
+      sendSerialMessage(`T${trackNum}:PLAYING:1`);
+    } catch (error) {
+      if (playRequestToken !== track._playRequestToken) return;
+      track._playPending = false;
+      track.isPlaying = false;
+      const playButton = document.getElementById(`btn-play-${trackNum}`);
+      if (playButton) {
+        playButton.classList.remove('playing');
+        playButton.textContent = 'PLAY';
+      }
+      logConsole(`Err: Cannot start Track ${trackNum}: ${error.message}`, 'err');
+      playErrorJingle();
+      publishTabletControllerState(true);
+      return;
+    }
   } else {
     // Play electronic beats fallback / demo mode
     track.isPlaying = true;
+    track._playPending = false;
     startSynthDemo(trackNum);
     document.getElementById(`btn-play-${trackNum}`).classList.add('playing');
     document.getElementById(`btn-play-${trackNum}`).textContent = 'PAUSE';
@@ -5743,6 +5945,8 @@ function playTrack(trackNum) {
 
 function pauseTrack(trackNum) {
   const track = tracks[trackNum];
+  track._playRequestToken += 1;
+  track._playPending = false;
   const wasFadingOut =
     track._endSyncFadeRole === 'out' || track.endSyncFadeOutStarted;
   if (track._endSyncFadeRole || wasFadingOut) {
@@ -5788,7 +5992,7 @@ function pauseTrack(trackNum) {
 
 function togglePlayTrack(trackNum) {
   const track = tracks[trackNum];
-  if (track.isPlaying) {
+  if (track.isPlaying || track._playPending) {
     pauseTrack(trackNum);
   } else {
     // Quantize: if Q is on and the OTHER track is playing, wait for next beat
@@ -5804,6 +6008,8 @@ function togglePlayTrack(trackNum) {
 
 function stopTrack(trackNum, { preserveOwnedFades = false } = {}) {
   const track = tracks[trackNum];
+  track._playRequestToken += 1;
+  track._playPending = false;
   const hadEndSyncFade =
     Boolean(track._endSyncFadeRole) || track.endSyncFadeOutStarted;
   if (!preserveOwnedFades) {
@@ -6342,6 +6548,7 @@ async function persistTappedBpmToSong(songPath, baseBpm, sourceLabel) {
     if (bpmElement) bpmElement.textContent = `${normalizedBpm} BPM`;
   });
   updateBpmCompatIndicators();
+  publishTabletSongLibrary();
   logConsole(
     `Tap BPM: Saved ${normalizedBpm} BPM to ${path.basename(songPath)} after 5 seconds`,
     'system'
@@ -7911,6 +8118,11 @@ function loadDirectoryStems(trackNum, dirPath) {
       logConsole(`Instrumental Stem absent: Track ${trackNum} (EQ INST disabled)`, 'system');
     }
 
+    // Playback must wait until Chromium has decoded enough media data. Without
+    // this gate, a fast Play press can race the load() calls above and leave
+    // the deck visually playing while every media element is still stalled.
+    prepareTrackMediaReadiness(trackNum);
+
     // Generate combined static waveform for all loaded stems
     track.staticWaveform = null; // Clear old waveform
     const pathsToDecode = [];
@@ -8190,7 +8402,7 @@ function closeSongAnalyzerDaemon(generation, failed = 0, immediate = false) {
   );
   setSongAnalyzerUiText(
     'song-analyzer-current',
-    failed > 0 ? 'Failed songs remain available and can be rescanned later' : 'BPM and waveform cache verified'
+    failed > 0 ? 'Failed songs remain available and can be rescanned later' : 'BPM, key and waveform cache verified'
   );
 
   window.setTimeout(() => {
@@ -8502,6 +8714,7 @@ function scanWorkingDirectory() {
       startedAt: Date.now()
     };
     closeSongAnalyzerDaemon(analyzerGeneration, 0, true);
+    publishTabletSongLibrary();
     return;
   }
 
@@ -8519,6 +8732,7 @@ function scanWorkingDirectory() {
         startedAt: Date.now()
       };
       closeSongAnalyzerDaemon(analyzerGeneration, 0, true);
+      publishTabletSongLibrary();
       return;
     }
 
@@ -8544,6 +8758,7 @@ function scanWorkingDirectory() {
 
       // Try to find cover art inside song folder
       let artSrc = DEFAULT_COVER_ART_URI;
+      let coverPath = '';
       try {
         const sStats = fs.statSync(songPath);
         if (sStats.isDirectory()) {
@@ -8555,11 +8770,13 @@ function scanWorkingDirectory() {
                    (nameLc.includes('cover') || nameLc.includes('art') || nameLc.includes('folder') || nameLc.includes('thumb') || nameLc.includes('artwork'));
           });
           if (imgFile) {
-            artSrc = path.join(songPath, imgFile);
+            coverPath = path.join(songPath, imgFile);
+            artSrc = coverPath;
           }
         }
       } catch (err) {}
       artImg.src = artSrc;
+      li.dataset.coverPath = coverPath;
       artDiv.appendChild(artImg);
       li.appendChild(artDiv);
 
@@ -8591,11 +8808,16 @@ function scanWorkingDirectory() {
       bpmSpan.className = 'song-item-bpm';
       bpmSpan.textContent = '-- BPM';
 
+      const keySpan = document.createElement('span');
+      keySpan.className = 'song-item-key';
+      keySpan.textContent = '--';
+
       const durSpan = document.createElement('span');
       durSpan.className = 'song-item-duration';
       durSpan.textContent = '--:--';
 
       metaDiv.appendChild(bpmCompatIcon);
+      metaDiv.appendChild(keySpan);
       metaDiv.appendChild(bpmSpan);
       metaDiv.appendChild(durSpan);
       li.appendChild(metaDiv);
@@ -8626,6 +8848,7 @@ function scanWorkingDirectory() {
       analysisJobs.push(
         loadSongMetadata(
           songPath,
+          keySpan,
           bpmSpan,
           durSpan,
           waveCanvas,
@@ -8641,6 +8864,7 @@ function scanWorkingDirectory() {
     emptyPlaceholder.hidden = true;
     songsList.appendChild(emptyPlaceholder);
     applySongListFilters();
+    publishTabletSongLibrary();
 
     logConsole(
       `Explorer: Found ${songItems.length} songs in ${playlists.length} playlists/folders in ${workingDir}`,
@@ -8669,6 +8893,7 @@ function scanWorkingDirectory() {
       startedAt: Date.now()
     };
     closeSongAnalyzerDaemon(analyzerGeneration, 1);
+    publishTabletSongLibrary();
   }
 }
 
@@ -8701,7 +8926,7 @@ function drawSongMiniWaveform(waveCanvas, peaks) {
   }
 }
 
-const SONG_ANALYSIS_CACHE_VERSION = 1;
+const SONG_ANALYSIS_CACHE_VERSION = 2;
 const SONG_AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a']);
 
 function getSongAnalysisKey(filePath) {
@@ -8838,15 +9063,26 @@ async function findSongCover(songPath, mainAudioPath, isFile) {
   }
 }
 
-function applySongAnalysisToExplorer(meta, bpmElement, durElement, waveCanvas, artImg, generation) {
+function applySongAnalysisToExplorer(meta, keyElement, bpmElement, durElement, waveCanvas, artImg, generation) {
   if (generation !== songAnalyzerGeneration || !bpmElement || !bpmElement.isConnected) return;
+  if (keyElement) keyElement.textContent = meta.key || '--';
   bpmElement.textContent = `${meta.bpm} BPM`;
   durElement.textContent = formatTime(meta.duration);
   const parentLi = bpmElement.closest('li');
-  if (parentLi) parentLi.dataset.bpm = meta.bpm;
+  if (parentLi) {
+    parentLi.dataset.bpm = meta.bpm;
+    parentLi.dataset.key = meta.key || '';
+    parentLi.dataset.duration = Number.isFinite(Number(meta.duration))
+      ? String(meta.duration)
+      : '';
+    parentLi.dataset.coverPath = meta.cover && fs.existsSync(meta.cover)
+      ? meta.cover
+      : '';
+  }
   if (waveCanvas && meta.peaks) drawSongMiniWaveform(waveCanvas, meta.peaks);
   if (artImg && meta.cover && fs.existsSync(meta.cover)) artImg.src = meta.cover;
   updateBpmCompatIndicators();
+  publishTabletSongLibrary();
 }
 
 function applySongAnalysisToTrack(trackNum, meta) {
@@ -8875,11 +9111,12 @@ function hydrateLoadedTracksFromAnalysis(meta) {
   });
 }
 
-async function analyzeSongMetadata(songPath, bpmElement, durElement, waveCanvas, artImg, generation) {
+async function analyzeSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanvas, artImg, generation) {
   const { isFile, mainAudioPath, audioFiles } = resolveSongAnalysisFiles(songPath);
   if (!mainAudioPath || audioFiles.length === 0) {
     if (generation === songAnalyzerGeneration && bpmElement && bpmElement.isConnected) {
       bpmElement.textContent = 'NO AUDIO';
+      if (keyElement) keyElement.textContent = '--';
       durElement.textContent = '--:--';
     }
     return null;
@@ -8891,14 +9128,15 @@ async function analyzeSongMetadata(songPath, bpmElement, durElement, waveCanvas,
   if (cachedData) {
     try {
       const cached = JSON.parse(cachedData);
-      if (cached.cacheVersion === SONG_ANALYSIS_CACHE_VERSION
+        if (cached.cacheVersion === SONG_ANALYSIS_CACHE_VERSION
           && cached.md5 === md5
+          && typeof cached.key === 'string'
           && typeof cached.waveformData === 'string') {
         cached.songPath = songPath;
         cached.mainAudioPath = mainAudioPath;
         cached.waveformPeaks = decodeWaveformPeaks(cached.waveformData);
         verifiedSongAnalysis.set(getSongAnalysisKey(mainAudioPath), cached);
-        applySongAnalysisToExplorer(cached, bpmElement, durElement, waveCanvas, artImg, generation);
+        applySongAnalysisToExplorer(cached, keyElement, bpmElement, durElement, waveCanvas, artImg, generation);
         hydrateLoadedTracksFromAnalysis(cached);
         logConsole(
           `NotoMixer Song Analyzer Daemon: MD5 unchanged, reused ${path.basename(songPath)}`,
@@ -8927,6 +9165,7 @@ async function analyzeSongMetadata(songPath, bpmElement, durElement, waveCanvas,
   const mainBuffer = decodedBuffers[0];
   const duration = Math.max(...decodedBuffers.map(buffer => buffer.duration));
   const bpm = estimateBPM(mainBuffer);
+  const key = estimateMusicalKey(mainBuffer);
   const offset = estimateBeatOffset(mainBuffer, bpm);
   const waveformPeaks = generateCombinedWaveformPeaks(decodedBuffers, 2000);
   const peaks = downsampleWaveformPeaks(waveformPeaks, 60);
@@ -8940,6 +9179,7 @@ async function analyzeSongMetadata(songPath, bpmElement, durElement, waveCanvas,
     songPath,
     mainAudioPath,
     bpm,
+    key,
     duration,
     offset,
     peaks,
@@ -8955,13 +9195,14 @@ async function analyzeSongMetadata(songPath, bpmElement, durElement, waveCanvas,
   delete cacheMeta.waveformPeaks;
   localStorage.setItem(cacheKey, JSON.stringify(cacheMeta));
   verifiedSongAnalysis.set(getSongAnalysisKey(mainAudioPath), meta);
-  applySongAnalysisToExplorer(meta, bpmElement, durElement, waveCanvas, artImg, generation);
+  applySongAnalysisToExplorer(meta, keyElement, bpmElement, durElement, waveCanvas, artImg, generation);
   hydrateLoadedTracksFromAnalysis(meta);
   return meta;
 }
 
-function loadSongMetadata(songPath, bpmElement, durElement, waveCanvas, artImg, generation) {
+function loadSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanvas, artImg, generation) {
   if (bpmElement) bpmElement.textContent = 'QUEUED';
+  if (keyElement) keyElement.textContent = '--';
   const songName = path.basename(songPath);
   const job = songAnalyzerQueue
     .catch(() => {})
@@ -8969,6 +9210,7 @@ function loadSongMetadata(songPath, bpmElement, durElement, waveCanvas, artImg, 
       setSongAnalyzerActiveSong(generation, songName);
       return analyzeSongMetadata(
         songPath,
+        keyElement,
         bpmElement,
         durElement,
         waveCanvas,
@@ -8984,6 +9226,7 @@ function loadSongMetadata(songPath, bpmElement, durElement, waveCanvas, artImg, 
       console.error(`NotoMixer Song Analyzer Daemon failed for ${songPath}:`, error);
       if (generation === songAnalyzerGeneration && bpmElement && bpmElement.isConnected) {
         bpmElement.textContent = 'ERR';
+        if (keyElement) keyElement.textContent = '--';
       }
       settleSongAnalyzerItem(generation, songName, true);
       throw error;
@@ -9291,6 +9534,182 @@ function applyExplorerLayout() {
     const savedHeight = localStorage.getItem('notoMixer_explorerHeight') || '180';
     sidebar.style.height = savedHeight + 'px';
     sidebar.style.width = '100%';
+  }
+}
+
+const MUSICAL_KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const MAJOR_KEY_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+const MINOR_KEY_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+
+function transformFftInPlace(real, imaginary) {
+  const size = real.length;
+
+  for (let index = 1, reversed = 0; index < size; index++) {
+    let bit = size >> 1;
+    while (reversed & bit) {
+      reversed ^= bit;
+      bit >>= 1;
+    }
+    reversed ^= bit;
+    if (index < reversed) {
+      [real[index], real[reversed]] = [real[reversed], real[index]];
+      [imaginary[index], imaginary[reversed]] = [imaginary[reversed], imaginary[index]];
+    }
+  }
+
+  for (let blockSize = 2; blockSize <= size; blockSize <<= 1) {
+    const halfSize = blockSize >> 1;
+    const angle = (-2 * Math.PI) / blockSize;
+    const stepReal = Math.cos(angle);
+    const stepImaginary = Math.sin(angle);
+
+    for (let blockStart = 0; blockStart < size; blockStart += blockSize) {
+      let twiddleReal = 1;
+      let twiddleImaginary = 0;
+      for (let offset = 0; offset < halfSize; offset++) {
+        const evenIndex = blockStart + offset;
+        const oddIndex = evenIndex + halfSize;
+        const oddReal = (real[oddIndex] * twiddleReal)
+          - (imaginary[oddIndex] * twiddleImaginary);
+        const oddImaginary = (real[oddIndex] * twiddleImaginary)
+          + (imaginary[oddIndex] * twiddleReal);
+
+        real[oddIndex] = real[evenIndex] - oddReal;
+        imaginary[oddIndex] = imaginary[evenIndex] - oddImaginary;
+        real[evenIndex] += oddReal;
+        imaginary[evenIndex] += oddImaginary;
+
+        const nextTwiddleReal = (twiddleReal * stepReal)
+          - (twiddleImaginary * stepImaginary);
+        twiddleImaginary = (twiddleReal * stepImaginary)
+          + (twiddleImaginary * stepReal);
+        twiddleReal = nextTwiddleReal;
+      }
+    }
+  }
+}
+
+function scoreMusicalKeyProfile(chroma, profile, rootPitchClass) {
+  const chromaMean = chroma.reduce((sum, value) => sum + value, 0) / 12;
+  const profileMean = profile.reduce((sum, value) => sum + value, 0) / 12;
+  let numerator = 0;
+  let chromaVariance = 0;
+  let profileVariance = 0;
+
+  for (let pitchClass = 0; pitchClass < 12; pitchClass++) {
+    const chromaValue = chroma[pitchClass] - chromaMean;
+    const profileValue = profile[(pitchClass - rootPitchClass + 12) % 12] - profileMean;
+    numerator += chromaValue * profileValue;
+    chromaVariance += chromaValue * chromaValue;
+    profileVariance += profileValue * profileValue;
+  }
+
+  const denominator = Math.sqrt(chromaVariance * profileVariance);
+  return denominator > 0 ? numerator / denominator : -Infinity;
+}
+
+function estimateMusicalKey(audioBuffer) {
+  try {
+    const fftSize = 4096;
+    const sampleRate = audioBuffer.sampleRate;
+    const sampleLength = audioBuffer.length;
+    if (!sampleRate || sampleLength < fftSize) return '--';
+
+    const channelCount = Math.max(1, Math.min(2, audioBuffer.numberOfChannels || 1));
+    const channels = Array.from(
+      { length: channelCount },
+      (_, channel) => audioBuffer.getChannelData(channel)
+    );
+    const duration = sampleLength / sampleRate;
+    const analysisStart = duration > 30 ? Math.floor(sampleRate * 10) : 0;
+    const analysisEnd = duration > 20
+      ? sampleLength - Math.floor(sampleRate * 5)
+      : sampleLength;
+    const availableSamples = Math.max(0, analysisEnd - analysisStart);
+    const windowCount = Math.min(64, Math.floor(availableSamples / fftSize));
+    if (windowCount < 1) return '--';
+
+    const window = new Float64Array(fftSize);
+    for (let index = 0; index < fftSize; index++) {
+      window[index] = 0.5 - (0.5 * Math.cos((2 * Math.PI * index) / (fftSize - 1)));
+    }
+
+    const real = new Float64Array(fftSize);
+    const imaginary = new Float64Array(fftSize);
+    const magnitudes = new Float64Array((fftSize >> 1) + 1);
+    const chroma = new Float64Array(12);
+    const firstBin = Math.max(1, Math.ceil((55 * fftSize) / sampleRate));
+    const lastBin = Math.min(fftSize >> 1, Math.floor((3520 * fftSize) / sampleRate));
+    const offsetRange = Math.max(0, availableSamples - fftSize);
+    let validWindows = 0;
+
+    for (let windowIndex = 0; windowIndex < windowCount; windowIndex++) {
+      const ratio = windowCount === 1 ? 0 : windowIndex / (windowCount - 1);
+      const start = analysisStart + Math.floor(offsetRange * ratio);
+      let mean = 0;
+      for (let index = 0; index < fftSize; index++) {
+        let sample = 0;
+        for (const channel of channels) sample += channel[start + index] || 0;
+        sample /= channelCount;
+        real[index] = sample;
+        mean += sample;
+      }
+      mean /= fftSize;
+
+      let energy = 0;
+      for (let index = 0; index < fftSize; index++) {
+        const centered = real[index] - mean;
+        energy += centered * centered;
+        real[index] = centered * window[index];
+        imaginary[index] = 0;
+      }
+      if ((energy / fftSize) < 1e-7) continue;
+
+      transformFftInPlace(real, imaginary);
+      for (let bin = firstBin; bin <= lastBin; bin++) {
+        magnitudes[bin] = Math.hypot(real[bin], imaginary[bin]);
+      }
+
+      const frameChroma = new Float64Array(12);
+      for (let bin = firstBin + 1; bin < lastBin; bin++) {
+        const magnitude = magnitudes[bin];
+        if (magnitude <= magnitudes[bin - 1] || magnitude < magnitudes[bin + 1]) continue;
+
+        const frequency = (bin * sampleRate) / fftSize;
+        const midiNote = 69 + (12 * Math.log2(frequency / 440));
+        const nearestNote = Math.round(midiNote);
+        const distance = Math.abs(midiNote - nearestNote);
+        const tuningWeight = Math.pow(Math.cos(Math.PI * distance), 2);
+        const pitchClass = ((nearestNote % 12) + 12) % 12;
+        const frequencyWeight = Math.max(0.35, Math.min(1, Math.sqrt(220 / frequency)));
+        frameChroma[pitchClass] += Math.log1p(magnitude) * tuningWeight * frequencyWeight;
+      }
+
+      const frameTotal = frameChroma.reduce((sum, value) => sum + value, 0);
+      if (frameTotal <= 0) continue;
+      for (let pitchClass = 0; pitchClass < 12; pitchClass++) {
+        chroma[pitchClass] += frameChroma[pitchClass] / frameTotal;
+      }
+      validWindows += 1;
+    }
+
+    if (validWindows === 0) return '--';
+    for (let pitchClass = 0; pitchClass < 12; pitchClass++) {
+      chroma[pitchClass] /= validWindows;
+    }
+
+    let best = { score: -Infinity, root: 0, minor: false };
+    for (let root = 0; root < 12; root++) {
+      const majorScore = scoreMusicalKeyProfile(chroma, MAJOR_KEY_PROFILE, root);
+      if (majorScore > best.score) best = { score: majorScore, root, minor: false };
+      const minorScore = scoreMusicalKeyProfile(chroma, MINOR_KEY_PROFILE, root);
+      if (minorScore > best.score) best = { score: minorScore, root, minor: true };
+    }
+
+    return `${MUSICAL_KEY_NAMES[best.root]}${best.minor ? 'm' : ''}`;
+  } catch (error) {
+    console.error('Error during musical key estimation:', error);
+    return '--';
   }
 }
 

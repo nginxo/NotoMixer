@@ -39,6 +39,12 @@ let tabletControllerState = {
   type: 'state',
   tracks: []
 };
+let tabletControllerLibrary = {
+  type: 'library',
+  playlists: [],
+  songs: []
+};
+let tabletLibraryCoverPaths = new Map();
 const tabletCoverPaths = { 1: '', 2: '' };
 const tabletCoverVersions = { 1: 0, 2: 0 };
 
@@ -221,6 +227,16 @@ function handleTabletControllerRequest(request, response) {
     return;
   }
 
+  if (requestUrl.pathname === '/library-cover') {
+    const songId = (requestUrl.searchParams.get('id') || '').slice(0, 1000);
+    const coverPath = tabletLibraryCoverPaths.get(songId);
+    const safeCover = coverPath && fs.existsSync(coverPath)
+      ? coverPath
+      : path.join(PUBLIC_ASSETS_ROOT, 'logo.svg');
+    sendTabletFile(response, safeCover);
+    return;
+  }
+
   const filePath = routeFiles[requestUrl.pathname];
   if (!filePath) {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -260,9 +276,67 @@ function sanitizeTabletControllerState(nextState) {
   return { type: 'state', jogPhysics, tracks };
 }
 
+function sanitizeTabletControllerLibrary(nextLibrary) {
+  const playlists = Array.isArray(nextLibrary?.playlists)
+    ? nextLibrary.playlists
+        .filter(value => typeof value === 'string')
+        .slice(0, 500)
+        .map(value => value.slice(0, 200))
+    : [];
+  const nextCoverPaths = new Map();
+  const songs = Array.isArray(nextLibrary?.songs)
+    ? nextLibrary.songs.slice(0, 10000).map(song => {
+        const id = typeof song?.id === 'string' ? song.id.slice(0, 1000) : '';
+        const requestedCoverPath = typeof song?.coverPath === 'string'
+          ? song.coverPath.slice(0, 2000)
+          : '';
+        let coverPath = '';
+        try {
+          const resolvedCoverPath = requestedCoverPath
+            ? path.resolve(requestedCoverPath)
+            : '';
+          const coverExtension = path.extname(resolvedCoverPath).toLowerCase();
+          if (
+            resolvedCoverPath
+            && ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(coverExtension)
+          ) {
+            coverPath = tabletLibraryCoverPaths.get(id) === resolvedCoverPath
+              ? resolvedCoverPath
+              : fs.statSync(resolvedCoverPath).isFile()
+                ? resolvedCoverPath
+                : '';
+          }
+        } catch (error) {}
+        if (id && coverPath) nextCoverPaths.set(id, coverPath);
+        return {
+          id,
+          title: typeof song?.title === 'string' ? song.title.slice(0, 300) : '',
+          playlist: typeof song?.playlist === 'string' ? song.playlist.slice(0, 200) : '',
+          hasCover: Boolean(coverPath),
+          key: typeof song?.key === 'string' ? song.key.slice(0, 8) : '',
+          bpm: song?.bpm !== null && song?.bpm !== '' && Number.isFinite(Number(song?.bpm))
+            ? Number(song.bpm)
+            : null,
+          duration: song?.duration !== null
+            && song?.duration !== ''
+            && Number.isFinite(Number(song?.duration))
+            ? Number(song.duration)
+            : null
+        };
+      }).filter(song => song.id && song.title)
+    : [];
+  tabletLibraryCoverPaths = nextCoverPaths;
+  return { type: 'library', playlists, songs };
+}
+
 function sendTabletState(socket) {
   if (socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify(tabletControllerState));
+}
+
+function sendTabletLibrary(socket) {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify(tabletControllerLibrary));
 }
 
 function broadcastTabletState() {
@@ -342,6 +416,20 @@ function forwardTabletControllerInput(payload) {
         pressed: payload.pressed === true
       });
     }
+    return;
+  }
+  if (payload.type === 'loadSong') {
+    const trackNum = Number(payload.trackNum);
+    const songId = typeof payload.songId === 'string'
+      ? payload.songId.slice(0, 1000)
+      : '';
+    if ((trackNum === 1 || trackNum === 2) && songId) {
+      mainWindow.webContents.send('tablet-controller:input', {
+        type: 'loadSong',
+        trackNum,
+        songId
+      });
+    }
   }
 }
 
@@ -364,6 +452,8 @@ function startTabletControllerServer() {
           const payload = JSON.parse(rawMessage.toString());
           if (payload.type === 'requestState') {
             sendTabletState(socket);
+          } else if (payload.type === 'requestLibrary') {
+            sendTabletLibrary(socket);
           } else {
             forwardTabletControllerInput(payload);
           }
@@ -544,6 +634,10 @@ ipcMain.handle('tablet-controller:get-info', () => {
 ipcMain.on('tablet-controller:state', (event, nextState) => {
   tabletControllerState = sanitizeTabletControllerState(nextState);
   broadcastTabletState();
+});
+
+ipcMain.on('tablet-controller:library', (event, nextLibrary) => {
+  tabletControllerLibrary = sanitizeTabletControllerLibrary(nextLibrary);
 });
 
 ipcMain.handle('app-update:check', async () => {
