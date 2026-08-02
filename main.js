@@ -2,9 +2,12 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const { spawn } = require('child_process');
 const os = require('os');
 const { pathToFileURL } = require('url');
 const { WebSocketServer, WebSocket } = require('ws');
+const appUpdater = require('./app-updater');
+const { loadNotoMixerConfig } = require('./notomixer-config');
 
 // Disable the default application menu bar (File, Edit, View, etc.)
 Menu.setApplicationMenu(null);
@@ -28,12 +31,97 @@ const PUBLIC_ASSETS_ROOT = path.join(NOTOMIXER_ROOT, 'assets');
 let tabletControllerServer = null;
 let tabletControllerWebSocketServer = null;
 let tabletControllerPort = 0;
+let availableAppUpdate = null;
+let downloadedUpdatePath = '';
+let updateCheckPromise = null;
+let updateDownloadPromise = null;
 let tabletControllerState = {
   type: 'state',
   tracks: []
 };
 const tabletCoverPaths = { 1: '', 2: '' };
 const tabletCoverVersions = { 1: 0, 2: 0 };
+
+function serializeAvailableUpdate(release) {
+  if (!release?.available) return null;
+  return {
+    currentVersion: release.currentVersion,
+    version: release.version,
+    tagName: release.tagName,
+    name: release.name,
+    prerelease: release.prerelease === true,
+    publishedAt: release.publishedAt,
+    notes: release.notes,
+    downloadAvailable: Boolean(release.asset),
+    asset: release.asset
+      ? {
+          name: release.asset.name,
+          size: release.asset.size,
+          hasDigest: /^sha256:[a-f0-9]{64}$/i.test(release.asset.digest || '')
+        }
+      : null
+  };
+}
+
+async function checkForAppUpdate() {
+  const updateConfig = loadNotoMixerConfig(NOTOMIXER_ROOT, app.getVersion());
+  if (updateConfig.skipUpdateRequest) {
+    availableAppUpdate = null;
+    downloadedUpdatePath = '';
+    return {
+      status: 'disabled',
+      currentVersion: app.getVersion()
+    };
+  }
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = appUpdater.checkForUpdate(app.getVersion())
+    .then(result => {
+      if (result.available) {
+        if (availableAppUpdate?.version !== result.version) {
+          downloadedUpdatePath = '';
+        }
+        availableAppUpdate = result;
+        return {
+          status: 'available',
+          release: serializeAvailableUpdate(result)
+        };
+      }
+      availableAppUpdate = null;
+      downloadedUpdatePath = '';
+      return {
+        status: 'current',
+        currentVersion: result.currentVersion || app.getVersion()
+      };
+    })
+    .finally(() => {
+      updateCheckPromise = null;
+    });
+  return updateCheckPromise;
+}
+
+function scheduleAutomaticUpdateCheck() {
+  setTimeout(() => {
+    checkForAppUpdate()
+      .then(result => {
+        if (
+          result.status === 'available'
+          && mainWindow
+          && !mainWindow.isDestroyed()
+        ) {
+          mainWindow.webContents.send('app-update:available', result.release);
+        } else if (
+          result.status === 'disabled'
+          && mainWindow
+          && !mainWindow.isDestroyed()
+        ) {
+          mainWindow.webContents.send('app-update:status', result);
+        }
+      })
+      // Startup checks intentionally fail silently when the network or GitHub
+      // is unavailable, or when the repository has no published releases yet.
+      .catch(() => {});
+  }, 3000);
+}
 
 function getLocalNetworkAddresses() {
   const addresses = [];
@@ -350,6 +438,7 @@ function createWindow() {
     }
     mainWindow.maximize();
     mainWindow.show();
+    scheduleAutomaticUpdateCheck();
   });
 
   mainWindow.loadFile('index.html');
@@ -455,6 +544,89 @@ ipcMain.handle('tablet-controller:get-info', () => {
 ipcMain.on('tablet-controller:state', (event, nextState) => {
   tabletControllerState = sanitizeTabletControllerState(nextState);
   broadcastTabletState();
+});
+
+ipcMain.handle('app-update:check', async () => {
+  try {
+    return await checkForAppUpdate();
+  } catch (error) {
+    return {
+      status: error?.statusCode === 404 ? 'no-release' : 'error'
+    };
+  }
+});
+
+ipcMain.handle('app-update:download', async event => {
+  if (!availableAppUpdate?.asset) {
+    return {
+      ok: false,
+      error: 'No Windows installer is attached to this release.'
+    };
+  }
+  if (updateDownloadPromise) return updateDownloadPromise;
+
+  const sender = event.sender;
+  updateDownloadPromise = appUpdater.downloadUpdate(
+    availableAppUpdate,
+    app.getPath('temp'),
+    progress => {
+      if (!sender.isDestroyed()) {
+        sender.send('app-update:progress', progress);
+      }
+    }
+  )
+    .then(result => {
+      downloadedUpdatePath = result.installerPath;
+      return {
+        ok: true,
+        verified: result.verified,
+        receivedBytes: result.receivedBytes
+      };
+    })
+    .catch(error => ({
+      ok: false,
+      error: error?.message || 'Update download failed.'
+    }))
+    .finally(() => {
+      updateDownloadPromise = null;
+    });
+  return updateDownloadPromise;
+});
+
+ipcMain.handle('app-update:install', () => {
+  if (
+    !downloadedUpdatePath
+    || path.extname(downloadedUpdatePath).toLowerCase() !== '.exe'
+    || !fs.existsSync(downloadedUpdatePath)
+  ) {
+    return { ok: false, error: 'The downloaded installer is no longer available.' };
+  }
+
+  return new Promise(resolve => {
+    let settled = false;
+    const settle = result => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    try {
+      const installer = spawn(downloadedUpdatePath, [], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false
+      });
+      installer.once('error', () => {
+        settle({ ok: false, error: 'The update installer could not be started.' });
+      });
+      installer.once('spawn', () => {
+        installer.unref();
+        settle({ ok: true });
+        setTimeout(() => app.quit(), 250);
+      });
+    } catch (error) {
+      settle({ ok: false, error: 'The update installer could not be started.' });
+    }
+  });
 });
 
 // IPC listener for open directory dialog (individual track loading fallback)

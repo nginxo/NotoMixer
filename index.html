@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>notoMixer</title>
+  <title>NotoMixer</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -55,7 +55,7 @@
     <header class="exertia-header">
       <div class="header-logo">
         <img class="header-logo-mark" alt="" aria-hidden="true">
-        <h2>notoMixer</h2>
+        <h2>NotoMixer</h2>
       </div>
       
       <div class="header-controls">
@@ -82,6 +82,7 @@
         </button>
         <button id="btn-open-settings" class="exertia-btn-icon" title="Settings">
           <svg viewBox="0 0 24 24" class="header-icon"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          <span id="settings-update-badge" class="update-notification-dot header-update-dot" hidden></span>
         </button>
         <div class="port-group">
           <label>COM PORT</label>
@@ -840,7 +841,7 @@
       </div>
       <div class="console-body" id="console-body">
         <div class="console-log" id="console-log">
-          <div class="log-line system">notoMixer exertia Rack loaded. Ready.</div>
+          <div class="log-line system">NotoMixer exertia Rack loaded. Ready.</div>
         </div>
       </div>
     </footer>
@@ -955,12 +956,12 @@
         <span class="modal-title">WARNING</span>
       </div>
       <div class="modal-body">
-        <p>notoMixer is not connected.</p>
+        <p>NotoMixer is not connected.</p>
         <p class="modal-subtext">Make sure the hardware controller is connected via USB and the correct COM port is selected.</p>
       </div>
       <div class="modal-footer">
         <button id="modal-btn-retry" class="exertia-btn-modal">Retry</button>
-        <button id="modal-btn-bypass" class="exertia-btn-modal btn-orange">Use app without notoMixer</button>
+        <button id="modal-btn-bypass" class="exertia-btn-modal btn-orange">Use app without NotoMixer</button>
       </div>
     </div>
   </div>
@@ -972,7 +973,7 @@
         <span class="modal-title" id="evaluation-modal-title">EVALUATION COPY</span>
       </div>
       <div class="modal-body">
-        <p>This is an evaluation copy of notoMixer and may contain bugs or unfinished behavior.</p>
+        <p>This is an evaluation copy of NotoMixer and may contain bugs or unfinished behavior.</p>
         <p class="modal-subtext">Please report any issues you encounter so they can be investigated and fixed.</p>
         <p class="evaluation-confidentiality">CONFIDENTIAL SOFTWARE — Do not share, redistribute, publish, or provide this copy to other people.</p>
       </div>
@@ -1002,6 +1003,34 @@
   </div>
 
 
+  <div id="app-update-modal" class="exertia-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="app-update-modal-title" aria-hidden="true">
+    <div class="exertia-modal-content app-update-modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="app-update-modal-title">UPDATE AVAILABLE</span>
+      </div>
+      <div class="modal-body app-update-modal-body">
+        <div class="app-update-version-row">
+          <span id="app-update-current-version">v1.0.0</span>
+          <span class="app-update-arrow" aria-hidden="true">→</span>
+          <strong id="app-update-latest-version">v1.0.1</strong>
+        </div>
+        <p>A new NotoMixer version is available.</p>
+        <p id="app-update-modal-detail" class="modal-subtext">Download the installer directly without leaving the app.</p>
+        <div id="app-update-modal-progress" class="app-update-progress" hidden>
+          <div class="app-update-progress-track">
+            <div id="app-update-modal-progress-fill" class="app-update-progress-fill"></div>
+          </div>
+          <span id="app-update-modal-progress-text">Preparing download…</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="app-update-btn-later" class="exertia-btn-modal" type="button">NOT NOW</button>
+        <button id="app-update-btn-download" class="exertia-btn-modal btn-orange" type="button">DOWNLOAD UPDATE</button>
+      </div>
+    </div>
+  </div>
+
+
   <div id="settings-modal" class="exertia-modal-overlay">
     <div class="exertia-modal-content settings-modal-content">
       <div class="modal-header">
@@ -1017,7 +1046,10 @@
           <button class="settings-menu-item" data-tab="keybinds">Keybinds</button>
           <button class="settings-menu-item" data-tab="controllers">Controllers</button>
           <button class="settings-menu-item" data-tab="zoom">Zoom</button>
-          <button class="settings-menu-item" data-tab="info">Info</button>
+          <button class="settings-menu-item settings-info-menu-item" data-tab="info">
+            <span>Info</span>
+            <span id="settings-info-update-badge" class="update-notification-dot settings-update-dot" hidden></span>
+          </button>
         </div>
         
 
@@ -1269,7 +1301,25 @@
           
           <div class="settings-tab-content" id="tab-info">
             <div class="settings-card">
-              <p class="tab-placeholder-text" style="margin: 0; line-height: 1.6;">notoMixer exertia Rack v<span id="settings-app-version">1.0.0</span><br>Connected via Web Serial API.</p>
+              <p class="tab-placeholder-text" style="margin: 0; line-height: 1.6;">NotoMixer v<span id="settings-app-version">1.0.0</span></p>
+            </div>
+            <div class="settings-card app-update-settings-card">
+              <div class="flex-row-between">
+                <span class="settings-label">APP UPDATES</span>
+                <span id="app-update-info-state" class="app-update-info-state">AUTOMATIC</span>
+              </div>
+              <p id="app-update-info-message" class="app-update-info-message">Updates are checked automatically after startup.</p>
+              <span id="app-update-info-detail" class="settings-desc">Current version: v1.0.0</span>
+              <div id="app-update-info-progress" class="app-update-progress" hidden>
+                <div class="app-update-progress-track">
+                  <div id="app-update-info-progress-fill" class="app-update-progress-fill"></div>
+                </div>
+                <span id="app-update-info-progress-text">Preparing download…</span>
+              </div>
+              <div class="app-update-info-actions">
+                <button id="app-update-btn-check" class="exertia-btn-modal" type="button">CHECK NOW</button>
+                <button id="app-update-btn-action" class="exertia-btn-modal btn-orange" type="button" hidden>DOWNLOAD UPDATE</button>
+              </div>
             </div>
           </div>
         </div>

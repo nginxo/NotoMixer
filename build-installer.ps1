@@ -13,7 +13,7 @@ $packagePath = Join-Path $projectRoot 'package.json'
 $distRoot = Join-Path $projectRoot 'dist'
 $packagedAppRoot = Join-Path $distRoot 'app\NotoMixer-win32-x64'
 $launcherOutputRoot = Join-Path $distRoot 'launcher'
-$launcherOutput = Join-Path $launcherOutputRoot 'MotoMixer.exe'
+$launcherOutput = Join-Path $launcherOutputRoot 'NotoMixer.exe'
 $launcherSource = Join-Path $projectRoot 'installer\launcher\Program.cs'
 $installerOutputRoot = Join-Path $distRoot 'installer'
 $installerScript = Join-Path $projectRoot 'installer\NotoMixer.iss'
@@ -291,6 +291,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $requiredEntries = @(
     '\main.js',
+    '\app-updater.js',
     '\renderer.js',
     '\index.html',
     '\splash.html',
@@ -331,6 +332,7 @@ $externalEntries = @(
     (Join-Path $projectRoot 'assets\audio\test-audio.mp3'),
     (Join-Path $projectRoot 'assets\images\splash.png'),
     (Join-Path $projectRoot 'settings\userSettings.notomixer'),
+    (Join-Path $projectRoot 'LICENSE'),
     (Join-Path $projectRoot 'logo.svg'),
     (Join-Path $projectRoot 'logo.png')
 )

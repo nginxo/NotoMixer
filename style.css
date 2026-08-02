@@ -403,6 +403,7 @@ body.app-daemon-locked > .in-app-window {
 }
 
 .exertia-btn-icon {
+  position: relative;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -429,6 +430,31 @@ body.app-daemon-locked > .in-app-window {
 
 .exertia-btn-icon:hover .header-icon {
   fill: var(--exertia-accent);
+}
+
+.update-notification-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  min-height: 8px;
+  box-sizing: border-box;
+  aspect-ratio: 1 / 1;
+  flex: 0 0 8px;
+  background: var(--exertia-accent);
+  border: 1px solid #202020;
+  border-radius: 999px !important;
+  box-shadow: 0 0 0 2px rgba(255, 92, 26, 0.12);
+}
+
+.update-notification-dot[hidden] {
+  display: none !important;
+}
+
+.header-update-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
 }
 
 .header-logo {
@@ -1779,6 +1805,71 @@ body.app-daemon-locked > .in-app-window {
   width: 380px;
 }
 
+.app-update-modal-content {
+  width: min(440px, calc(100vw - 28px));
+}
+
+#app-update-modal {
+  z-index: 31000;
+}
+
+.app-update-modal-body {
+  gap: 11px !important;
+}
+
+.app-update-version-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: #b8b8b8;
+  background: #191919;
+  border: 1px solid #414141;
+  font-size: 13px;
+}
+
+.app-update-version-row strong {
+  color: #ffffff;
+}
+
+.app-update-arrow {
+  color: var(--exertia-accent);
+}
+
+.app-update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  color: #a8a8a8;
+  font-size: 9px;
+}
+
+.app-update-progress[hidden] {
+  display: none !important;
+}
+
+.app-update-progress-track {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  background: #151515;
+  border: 1px solid #454545;
+  border-radius: 2px;
+}
+
+.app-update-progress-fill {
+  width: 0;
+  height: 100%;
+  background: var(--exertia-accent);
+  transition: width 0.15s ease-out;
+}
+
+.exertia-btn-modal:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .tablet-controller-modal-body {
   display: flex;
   flex-direction: column;
@@ -2270,6 +2361,17 @@ body.app-daemon-locked > .in-app-window {
   background-color: #3a3a3a;
   color: #ffffff;
   border-left-color: var(--exertia-accent);
+}
+
+.settings-info-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-update-dot {
+  margin-left: auto;
 }
 
 .settings-content-area {
@@ -3407,6 +3509,43 @@ body.app-daemon-locked > .in-app-window {
   display: flex;
   flex-direction: column;
   min-height: 0; 
+}
+
+.app-update-settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.app-update-info-state {
+  color: #aaa;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.45px;
+}
+
+.app-update-info-state.available,
+.app-update-info-state.downloaded {
+  color: var(--exertia-accent);
+}
+
+.app-update-info-state.error {
+  color: #ff6666;
+}
+
+.app-update-info-message {
+  margin: 0;
+  color: #e0e0e0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.app-update-info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 3px;
 }
 
 .explorer-playlists-group {

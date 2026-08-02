@@ -88,6 +88,351 @@ function hideEvaluationNotice() {
   modal.setAttribute('aria-hidden', 'true');
 }
 
+const LEGACY_DEFERRED_UPDATE_VERSION_KEY = 'notoMixer_deferredUpdateVersion';
+let availableAppUpdate = null;
+let appUpdatePhase = 'idle';
+let appUpdateDownloadError = '';
+let appUpdateProgress = { receivedBytes: 0, totalBytes: 0, percent: 0 };
+let settingsUpdateAcknowledged = false;
+let deferredAppUpdateVersion = '';
+let appUpdateNotificationAudio = null;
+let lastUpdateSoundVersion = '';
+
+// Older builds persisted "Not now" indefinitely. Deferral now lasts only for
+// the current app session, so a later launch can present the update again.
+localStorage.removeItem(LEGACY_DEFERRED_UPDATE_VERSION_KEY);
+
+function playAppUpdateNotification(version) {
+  if (!version || lastUpdateSoundVersion === version) return;
+  lastUpdateSoundVersion = version;
+  try {
+    appUpdateNotificationAudio = new Audio(
+      getNotoMixerAssetUrl('audio', 'update.mp3')
+    );
+    appUpdateNotificationAudio.addEventListener('ended', () => {
+      appUpdateNotificationAudio = null;
+    }, { once: true });
+    appUpdateNotificationAudio.play().catch(() => {});
+  } catch (error) {}
+}
+
+function formatUpdateBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes <= 0) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isCurrentUpdateDeferred() {
+  return Boolean(
+    availableAppUpdate?.version
+    && deferredAppUpdateVersion === availableAppUpdate.version
+  );
+}
+
+function renderAppUpdateBadges() {
+  const deferred = isCurrentUpdateDeferred();
+  const settingsBadge = document.getElementById('settings-update-badge');
+  const infoBadge = document.getElementById('settings-info-update-badge');
+  if (settingsBadge) {
+    settingsBadge.hidden = !deferred || settingsUpdateAcknowledged;
+  }
+  if (infoBadge) infoBadge.hidden = !deferred;
+}
+
+function renderAppUpdateProgress() {
+  const percent = Number.isFinite(Number(appUpdateProgress.percent))
+    ? Math.max(0, Math.min(100, Number(appUpdateProgress.percent)))
+    : 0;
+  const received = formatUpdateBytes(appUpdateProgress.receivedBytes);
+  const total = formatUpdateBytes(appUpdateProgress.totalBytes);
+  const progressText = total
+    ? `${percent}% · ${received} / ${total}`
+    : received
+      ? `Downloaded ${received}`
+      : 'Preparing download…';
+
+  ['modal', 'info'].forEach(location => {
+    const progress = document.getElementById(`app-update-${location}-progress`);
+    const fill = document.getElementById(`app-update-${location}-progress-fill`);
+    const text = document.getElementById(`app-update-${location}-progress-text`);
+    if (progress) progress.hidden = appUpdatePhase !== 'downloading';
+    if (fill) fill.style.width = `${percent}%`;
+    if (text) text.textContent = progressText;
+  });
+}
+
+function renderAppUpdateInfo() {
+  const state = document.getElementById('app-update-info-state');
+  const message = document.getElementById('app-update-info-message');
+  const detail = document.getElementById('app-update-info-detail');
+  const actionButton = document.getElementById('app-update-btn-action');
+  if (!state || !message || !detail || !actionButton) return;
+
+  state.className = 'app-update-info-state';
+  actionButton.hidden = true;
+  actionButton.disabled = false;
+  const currentVersion = availableAppUpdate?.currentVersion
+    || notoMixerConfig.version;
+  detail.textContent = `Current version: v${currentVersion}`;
+
+  if (appUpdatePhase === 'checking') {
+    state.textContent = 'CHECKING';
+    message.textContent = 'Checking for updates…';
+  } else if (appUpdatePhase === 'current') {
+    state.textContent = 'UP TO DATE';
+    message.textContent = 'You are using the latest published version.';
+  } else if (appUpdatePhase === 'no-release') {
+    state.textContent = 'NO RELEASE';
+    message.textContent = 'No published NotoMixer release is available yet.';
+  } else if (appUpdatePhase === 'disabled') {
+    state.textContent = 'DISABLED';
+    message.textContent = 'Automatic update checks are disabled in config.notomixer.';
+  } else if (appUpdatePhase === 'error') {
+    state.textContent = 'UNAVAILABLE';
+    state.classList.add('error');
+    message.textContent = appUpdateDownloadError
+      || 'The update check could not be completed.';
+  } else if (appUpdatePhase === 'downloading') {
+    state.textContent = 'DOWNLOADING';
+    state.classList.add('available');
+    message.textContent = `Downloading NotoMixer v${availableAppUpdate.version}…`;
+    detail.textContent = availableAppUpdate.asset
+      ? `${availableAppUpdate.asset.name} · ${formatUpdateBytes(availableAppUpdate.asset.size)}`
+      : detail.textContent;
+  } else if (appUpdatePhase === 'downloaded') {
+    state.textContent = 'READY';
+    state.classList.add('downloaded');
+    message.textContent = `NotoMixer v${availableAppUpdate.version} is ready to install.`;
+    actionButton.hidden = false;
+    actionButton.textContent = 'INSTALL UPDATE';
+  } else if (availableAppUpdate) {
+    state.textContent = availableAppUpdate.prerelease
+      ? 'PRERELEASE'
+      : 'AVAILABLE';
+    state.classList.add('available');
+    message.textContent = appUpdateDownloadError
+      || `NotoMixer v${availableAppUpdate.version} is available.`;
+    detail.textContent = availableAppUpdate.asset
+      ? `${availableAppUpdate.asset.name} · ${formatUpdateBytes(availableAppUpdate.asset.size)}`
+      : 'This release does not include a Windows installer.';
+    actionButton.hidden = false;
+    actionButton.disabled = !availableAppUpdate.downloadAvailable;
+    actionButton.textContent = appUpdateDownloadError
+      ? 'RETRY DOWNLOAD'
+      : 'DOWNLOAD UPDATE';
+  } else {
+    state.textContent = 'AUTOMATIC';
+    message.textContent = 'Updates are checked automatically after startup.';
+  }
+
+  renderAppUpdateProgress();
+  renderAppUpdateBadges();
+}
+
+function renderAppUpdateModal() {
+  if (!availableAppUpdate) return;
+  const title = document.getElementById('app-update-modal-title');
+  const current = document.getElementById('app-update-current-version');
+  const latest = document.getElementById('app-update-latest-version');
+  const detail = document.getElementById('app-update-modal-detail');
+  const laterButton = document.getElementById('app-update-btn-later');
+  const actionButton = document.getElementById('app-update-btn-download');
+  if (title) {
+    title.textContent = availableAppUpdate.prerelease
+      ? 'PRERELEASE UPDATE AVAILABLE'
+      : 'UPDATE AVAILABLE';
+  }
+  if (current) current.textContent = `v${availableAppUpdate.currentVersion}`;
+  if (latest) latest.textContent = `v${availableAppUpdate.version}`;
+  if (detail) {
+    detail.textContent = appUpdateDownloadError
+      || (availableAppUpdate.downloadAvailable
+        ? `${availableAppUpdate.prerelease ? 'This is a prerelease. ' : ''}Download the installer directly without leaving the app.`
+        : 'The release exists, but it does not include a Windows installer.');
+  }
+  if (laterButton) {
+    laterButton.disabled = appUpdatePhase === 'downloading';
+    laterButton.textContent = appUpdatePhase === 'downloaded' ? 'LATER' : 'NOT NOW';
+  }
+  if (actionButton) {
+    actionButton.disabled = appUpdatePhase === 'downloading'
+      || (!availableAppUpdate.downloadAvailable && appUpdatePhase !== 'downloaded');
+    actionButton.textContent = appUpdatePhase === 'downloaded'
+      ? 'INSTALL UPDATE'
+      : appUpdatePhase === 'downloading'
+        ? 'DOWNLOADING…'
+        : appUpdateDownloadError
+          ? 'RETRY DOWNLOAD'
+          : 'DOWNLOAD UPDATE';
+  }
+  renderAppUpdateProgress();
+}
+
+function showAppUpdateModal() {
+  if (!availableAppUpdate) return;
+  renderAppUpdateModal();
+  const modal = document.getElementById('app-update-modal');
+  if (modal) {
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function hideAppUpdateModal() {
+  const modal = document.getElementById('app-update-modal');
+  if (modal) {
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function deferAppUpdate() {
+  if (!availableAppUpdate?.version || appUpdatePhase === 'downloading') return;
+  deferredAppUpdateVersion = availableAppUpdate.version;
+  settingsUpdateAcknowledged = false;
+  hideAppUpdateModal();
+  renderAppUpdateInfo();
+}
+
+function handleAvailableAppUpdate(release, { showPrompt = true } = {}) {
+  if (!release?.version) return;
+  const isNewlyDetectedVersion = availableAppUpdate?.version !== release.version;
+  availableAppUpdate = release;
+  appUpdatePhase = 'available';
+  appUpdateDownloadError = '';
+  appUpdateProgress = { receivedBytes: 0, totalBytes: release.asset?.size || 0, percent: 0 };
+  renderAppUpdateInfo();
+  if (isNewlyDetectedVersion) playAppUpdateNotification(release.version);
+  if (showPrompt && !isCurrentUpdateDeferred()) showAppUpdateModal();
+}
+
+async function checkForAppUpdatesManually() {
+  if (appUpdatePhase === 'downloading') return;
+  appUpdatePhase = 'checking';
+  appUpdateDownloadError = '';
+  renderAppUpdateInfo();
+  try {
+    const result = await ipcRenderer.invoke('app-update:check');
+    if (result?.status === 'available') {
+      handleAvailableAppUpdate(result.release, { showPrompt: false });
+      return;
+    }
+    availableAppUpdate = null;
+    deferredAppUpdateVersion = '';
+    settingsUpdateAcknowledged = true;
+    appUpdatePhase = result?.status === 'no-release'
+      ? 'no-release'
+      : result?.status === 'disabled'
+        ? 'disabled'
+        : 'current';
+  } catch (error) {
+    appUpdatePhase = 'error';
+    appUpdateDownloadError = 'The update check could not be completed.';
+  }
+  renderAppUpdateInfo();
+}
+
+async function installDownloadedAppUpdate() {
+  const modalButton = document.getElementById('app-update-btn-download');
+  const infoButton = document.getElementById('app-update-btn-action');
+  if (modalButton) modalButton.disabled = true;
+  if (infoButton) infoButton.disabled = true;
+  try {
+    const result = await ipcRenderer.invoke('app-update:install');
+    if (!result?.ok) {
+      appUpdateDownloadError = result?.error || 'The installer could not be started.';
+      renderAppUpdateInfo();
+      renderAppUpdateModal();
+    }
+  } catch (error) {
+    appUpdateDownloadError = 'The installer could not be started.';
+    renderAppUpdateInfo();
+    renderAppUpdateModal();
+  }
+}
+
+async function startAppUpdateDownload() {
+  if (!availableAppUpdate || appUpdatePhase === 'downloading') return;
+  if (appUpdatePhase === 'downloaded') {
+    await installDownloadedAppUpdate();
+    return;
+  }
+
+  deferredAppUpdateVersion = '';
+  settingsUpdateAcknowledged = true;
+  appUpdatePhase = 'downloading';
+  appUpdateDownloadError = '';
+  renderAppUpdateInfo();
+  showAppUpdateModal();
+  try {
+    const result = await ipcRenderer.invoke('app-update:download');
+    if (!result?.ok) {
+      appUpdatePhase = 'available';
+      appUpdateDownloadError = result?.error
+        || 'Download failed. Check your connection and try again.';
+    } else {
+      appUpdatePhase = 'downloaded';
+      appUpdateProgress.percent = 100;
+    }
+  } catch (error) {
+    appUpdatePhase = 'available';
+    appUpdateDownloadError = 'Download failed. Check your connection and try again.';
+  }
+  renderAppUpdateInfo();
+  renderAppUpdateModal();
+}
+
+function setupAppUpdateUI() {
+  document.getElementById('app-update-btn-later')
+    ?.addEventListener('click', deferAppUpdate);
+  document.getElementById('app-update-btn-download')
+    ?.addEventListener('click', startAppUpdateDownload);
+  document.getElementById('app-update-btn-action')
+    ?.addEventListener('click', startAppUpdateDownload);
+  document.getElementById('app-update-btn-check')
+    ?.addEventListener('click', checkForAppUpdatesManually);
+
+  const modal = document.getElementById('app-update-modal');
+  modal?.addEventListener('mousedown', event => {
+    if (event.target === modal) deferAppUpdate();
+  });
+  document.addEventListener('keydown', event => {
+    if (
+      event.key === 'Escape'
+      && modal?.classList.contains('show')
+      && appUpdatePhase !== 'downloading'
+    ) {
+      event.preventDefault();
+      deferAppUpdate();
+    }
+  });
+  renderAppUpdateInfo();
+}
+
+ipcRenderer.on('app-update:available', (event, release) => {
+  handleAvailableAppUpdate(release, { showPrompt: true });
+});
+
+ipcRenderer.on('app-update:status', (event, status) => {
+  if (status?.status !== 'disabled') return;
+  availableAppUpdate = null;
+  appUpdatePhase = 'disabled';
+  renderAppUpdateInfo();
+});
+
+ipcRenderer.on('app-update:progress', (event, progress) => {
+  if (appUpdatePhase !== 'downloading') return;
+  appUpdateProgress = {
+    receivedBytes: Number(progress?.receivedBytes) || 0,
+    totalBytes: Number(progress?.totalBytes) || 0,
+    percent: Number.isFinite(Number(progress?.percent))
+      ? Number(progress.percent)
+      : null
+  };
+  renderAppUpdateProgress();
+});
+
 // Global audio context
 let audioCtx = null;
 let workingDir = ''; // Root directory containing songs folder
@@ -332,7 +677,7 @@ function isKeyboardShortcutBlocked(event) {
   if (document.body.classList.contains('app-daemon-locked')) return true;
   return Boolean(
     document.querySelector(
-      '#settings-modal.show, #end-sync-modal.show, #connection-modal.show, #evaluation-modal.show, #tablet-controller-modal.show, #cue-settings-window.show, #midi-mapping-modal.show'
+      '#settings-modal.show, #end-sync-modal.show, #connection-modal.show, #evaluation-modal.show, #app-update-modal.show, #tablet-controller-modal.show, #cue-settings-window.show, #midi-mapping-modal.show'
     )
   );
 }
@@ -8777,6 +9122,10 @@ function showSettingsModal() {
   refreshMidiControllerUI();
   populateJogPhysicsSettingsUI();
   scheduleAudioDeviceRefresh();
+  if (isCurrentUpdateDeferred()) {
+    settingsUpdateAcknowledged = true;
+    renderAppUpdateBadges();
+  }
 
   const openingSilenceCheck = document.getElementById('setting-skip-opening-silence');
   const endingSilenceCheck = document.getElementById('setting-skip-ending-silence');
@@ -10434,6 +10783,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupKeyboardShortcuts();
   setupMidiControllerUI();
   setupTabletControllerExtension();
+  setupAppUpdateUI();
   initMidiControllers();
   setupEndSyncModalListeners();
   startVisualizers();
