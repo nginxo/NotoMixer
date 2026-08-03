@@ -25,6 +25,47 @@
     </div>
   </header>
 
+  <section
+    class="song-analyzer-daemon-overlay"
+    id="analysis-lock"
+    aria-live="polite"
+    aria-hidden="true"
+    hidden
+  >
+    <div class="song-analyzer-daemon-panel">
+      <div class="song-analyzer-daemon-header">
+        <span class="song-analyzer-daemon-led" aria-hidden="true"></span>
+        <span>NOTOMIXER SONG ANALYZER DAEMON</span>
+      </div>
+      <div class="song-analyzer-daemon-body">
+        <div class="song-analyzer-daemon-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <p id="analysis-lock-status" class="song-analyzer-daemon-status">Song analysis in progress</p>
+        <p id="analysis-lock-current" class="song-analyzer-daemon-current">Preparing music library</p>
+        <div
+          class="song-analyzer-progress"
+          id="analysis-lock-progress"
+          role="progressbar"
+          aria-label="Song analysis progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <div id="analysis-lock-progress-fill" class="song-analyzer-progress-fill"></div>
+          <div class="song-analyzer-progress-scanline"></div>
+        </div>
+        <div class="song-analyzer-daemon-footer">
+          <span id="analysis-lock-count">0 / 0</span>
+          <span id="analysis-lock-percent">0%</span>
+        </div>
+        <p class="song-analyzer-controller-note">
+          You will be able to use the local controller once this process ends.
+        </p>
+      </div>
+    </div>
+  </section>
+
   <main class="decks">
     <section class="deck deck-one" data-track="1">
       <header class="deck-header">

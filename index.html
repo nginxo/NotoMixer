@@ -129,6 +129,21 @@
 
         
         <div class="explorer-songs-group">
+          <div
+            id="media-support-removed-alert"
+            class="media-support-removed-alert"
+            role="alert"
+            aria-hidden="true"
+            hidden
+          >
+            <svg class="media-support-warning-icon" viewBox="0 0 64 64" aria-hidden="true">
+              <path d="M32 6 59 54H5L32 6Z"></path>
+              <path d="M32 21v17"></path>
+              <circle cx="32" cy="46" r="2.5"></circle>
+            </svg>
+            <strong>USB media support has been removed.</strong>
+            <p>Plug it in again or select another support folder.</p>
+          </div>
           <div class="sidebar-header">
             <h3 id="songs-header-title">AVAILABLE SONGS</h3>
             <div class="sidebar-controls" style="display: flex; gap: 4px; align-items: center;">
@@ -204,6 +219,9 @@
                 <button class="loop-strip-btn btn-loop-in" id="btn-loop-in-1">IN</button>
                 <button class="loop-strip-btn btn-loop-out" id="btn-loop-out-1">OUT</button>
                 <button class="loop-strip-btn btn-loop-exit" id="btn-loop-exit-1">EXIT</button>
+                <span class="loop-strip-separator" aria-hidden="true"></span>
+                <button class="loop-strip-btn btn-loop-repeat active" id="btn-loop-repeat-1" aria-pressed="true">LOOP</button>
+                <button class="loop-strip-btn btn-loop-restart" id="btn-loop-restart-1" title="Return to loop start" aria-label="Return to loop start"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5V1L4 8l7 7v-4c4.97 0 8.5 1.6 11 5-1-5-4-10-11-11z"></path></svg></button>
               </div>
               
               <button class="btn-beat-sync" id="btn-sync-1">SYNC</button>
@@ -535,6 +553,9 @@
                 <button class="loop-strip-btn btn-loop-in" id="btn-loop-in-2">IN</button>
                 <button class="loop-strip-btn btn-loop-out" id="btn-loop-out-2">OUT</button>
                 <button class="loop-strip-btn btn-loop-exit" id="btn-loop-exit-2">EXIT</button>
+                <span class="loop-strip-separator" aria-hidden="true"></span>
+                <button class="loop-strip-btn btn-loop-repeat active" id="btn-loop-repeat-2" aria-pressed="true">LOOP</button>
+                <button class="loop-strip-btn btn-loop-restart" id="btn-loop-restart-2" title="Return to loop start" aria-label="Return to loop start"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5V1L4 8l7 7v-4c4.97 0 8.5 1.6 11 5-1-5-4-10-11-11z"></path></svg></button>
               </div>
               
               <button class="btn-beat-sync" id="btn-sync-2">SYNC</button>
@@ -949,6 +970,7 @@
   </div>
 
   <div id="macro-assign-context-menu" class="macro-context-menu" role="menu" aria-hidden="true"></div>
+  <div id="loop-settings-context-menu" class="macro-context-menu loop-settings-context-menu" role="menu" aria-hidden="true"></div>
 
   <!-- Connection Warning -->
   <div id="connection-modal" class="exertia-modal-overlay">
@@ -1421,6 +1443,9 @@
               <button class="loop-strip-btn btn-loop-in" id="prev-btn-loop-in">IN</button>
               <button class="loop-strip-btn btn-loop-out" id="prev-btn-loop-out">OUT</button>
               <button class="loop-strip-btn btn-loop-exit" id="prev-btn-loop-exit">EXIT</button>
+              <span class="loop-strip-separator" aria-hidden="true"></span>
+              <button class="loop-strip-btn btn-loop-repeat active" id="prev-btn-loop-repeat" aria-pressed="true">LOOP</button>
+              <button class="loop-strip-btn btn-loop-restart" id="prev-btn-loop-restart" title="Return to loop start" aria-label="Return to loop start"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5V1L4 8l7 7v-4c4.97 0 8.5 1.6 11 5-1-5-4-10-11-11z"></path></svg></button>
             </div>
             
             <div class="time-counter" id="prev-time-display">

@@ -600,8 +600,48 @@ function renderTrack(track, index) {
   });
 }
 
+function renderLibraryAnalysis(analysis) {
+  const overlay = document.getElementById('analysis-lock');
+  const progress = document.getElementById('analysis-lock-progress');
+  const fill = document.getElementById('analysis-lock-progress-fill');
+  const count = document.getElementById('analysis-lock-count');
+  const percent = document.getElementById('analysis-lock-percent');
+  const current = document.getElementById('analysis-lock-current');
+  if (!overlay || !progress || !fill || !count || !percent || !current) return;
+
+  const inProgress = analysis?.inProgress === true;
+  const wasVisible = !overlay.hidden;
+  overlay.hidden = !inProgress;
+  overlay.setAttribute('aria-hidden', inProgress ? 'false' : 'true');
+  if (!inProgress) return;
+
+  if (!wasVisible) {
+    closeSongSelector();
+    trackViews.forEach((view, trackNum) => {
+      if (view.dragging) sendMessage({ type: 'jogEnd', trackNum });
+      view.dragging = false;
+      view.pointerId = null;
+      view.scratching = false;
+      view.coasting = false;
+      view.jogVelocity = 0;
+      view.shell.classList.remove('grabbed', 'coasting');
+    });
+  }
+
+  const total = Math.max(0, Number(analysis?.total) || 0);
+  const completed = Math.max(0, Math.min(total, Number(analysis?.completed) || 0));
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  progress.setAttribute('aria-valuenow', String(percentage));
+  fill.style.width = `${percentage}%`;
+  count.textContent = `${completed} / ${total}`;
+  percent.textContent = `${percentage}%`;
+  current.textContent = String(analysis?.current || '').trim()
+    || (total > 0 ? `${total} ${total === 1 ? 'song' : 'songs'} queued` : 'Preparing music library');
+}
+
 function renderState(state) {
   if (!state || !Array.isArray(state.tracks)) return;
+  renderLibraryAnalysis(state.libraryAnalysis);
   const maxSpeed = Number(state.jogPhysics?.maxSpeed);
   const inertiaSeconds = Number(state.jogPhysics?.inertiaSeconds);
   if (Number.isFinite(maxSpeed)) {
@@ -634,6 +674,23 @@ function setConnected(connected) {
   connectionLabel.textContent = connected ? 'CONNECTED' : 'RECONNECTING';
 }
 
+function receiveControllerSession(payload) {
+  const sessionId = typeof payload?.sessionId === 'string'
+    ? payload.sessionId
+    : '';
+  if (!sessionId) return;
+  try {
+    const storageKey = 'notoMixer_controllerSessionId';
+    const previousSessionId = sessionStorage.getItem(storageKey);
+    sessionStorage.setItem(storageKey, sessionId);
+    if (previousSessionId && previousSessionId !== sessionId) {
+      location.reload();
+    }
+  } catch (error) {
+    console.warn('Unable to track the NotoMixer controller session', error);
+  }
+}
+
 function connect() {
   clearTimeout(reconnectTimer);
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -645,7 +702,9 @@ function connect() {
   socket.addEventListener('message', event => {
     try {
       const payload = JSON.parse(event.data);
-      if (payload?.type === 'library') {
+      if (payload?.type === 'session') {
+        receiveControllerSession(payload);
+      } else if (payload?.type === 'library') {
         receiveTabletLibrary(payload);
       } else {
         renderState(payload);

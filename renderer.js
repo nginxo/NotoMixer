@@ -436,6 +436,9 @@ ipcRenderer.on('app-update:progress', (event, progress) => {
 // Global audio context
 let audioCtx = null;
 let workingDir = ''; // Root directory containing songs folder
+let workingDirectoryAvailable = null;
+let workingDirectoryMonitorId = null;
+const WORKING_DIRECTORY_MONITOR_INTERVAL_MS = 1000;
 
 // Center Snap Assist Settings
 let snapEnabled = false;
@@ -1832,6 +1835,7 @@ function resolveTrackTimeWithinActiveLoop(
 
   if (
     !track?.loopEnabled ||
+    !track.loopRepeatEnabled ||
     !Number.isFinite(track.loopStartTime) ||
     !Number.isFinite(track.loopEndTime)
   ) {
@@ -2555,10 +2559,21 @@ function buildTabletCueState(trackNum, cueIndex) {
 }
 
 function buildTabletControllerState() {
+  const analyzerOverlay = document.getElementById('song-analyzer-daemon');
+  const analysisInProgress = !initialSongCheckComplete
+    || document.body.classList.contains('app-daemon-locked')
+    || analyzerOverlay?.classList.contains('show');
   return {
     jogPhysics: {
       maxSpeed: jogMaxSpeed,
       inertiaSeconds: jogInertiaSeconds
+    },
+    libraryAnalysis: {
+      inProgress: analysisInProgress,
+      total: Number(songAnalyzerUiState.total) || 0,
+      completed: Number(songAnalyzerUiState.completed) || 0,
+      failed: Number(songAnalyzerUiState.failed) || 0,
+      current: String(songAnalyzerUiState.current || '')
     },
     tracks: [1, 2].map(trackNum => {
       const track = tracks[trackNum];
@@ -2840,7 +2855,22 @@ function setupTabletControllerExtension() {
   });
 
   setInterval(() => publishTabletControllerState(), 100);
+  publishTabletControllerState(true);
   publishTabletSongLibrary();
+
+  const synchronizeConnectedClients = async (attempt = 0) => {
+    try {
+      const info = await ipcRenderer.invoke('tablet-controller:get-info');
+      if (info?.ready) {
+        updateTabletControllerClientCount(info.connectedClients || 0);
+        return;
+      }
+    } catch (error) {}
+    if (attempt < 4) {
+      setTimeout(() => synchronizeConnectedClients(attempt + 1), 300);
+    }
+  };
+  synchronizeConnectedClients();
 }
 
 function getMimeType(filePath) {
@@ -3082,6 +3112,8 @@ const tracks = {
     
     // Loop State
     loopEnabled: false,
+    loopRepeatEnabled: true,
+    loopExitAction: 'continue',
     loopStartTime: null,
     loopEndTime: null,
     autoLoopBeats: 4,
@@ -3184,6 +3216,8 @@ const tracks = {
     
     // Loop State
     loopEnabled: false,
+    loopRepeatEnabled: true,
+    loopExitAction: 'continue',
     loopStartTime: null,
     loopEndTime: null,
     autoLoopBeats: 4,
@@ -3880,6 +3914,19 @@ function setupMacroUI() {
   renderMacroGrid(2);
 
   document.addEventListener('contextmenu', event => {
+    const loopRepeatButton = event.target.closest?.('.btn-loop-repeat');
+    if (loopRepeatButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      hideMacroAssignContextMenu();
+      const trackMatch = loopRepeatButton.id.match(/^btn-loop-repeat-([12])$/);
+      showLoopSettingsContextMenu(
+        event,
+        trackMatch ? Number(trackMatch[1]) : null
+      );
+      return;
+    }
+
     const macroButton = event.target.closest?.('.macro-btn');
     if (macroButton) {
       event.preventDefault();
@@ -4284,6 +4331,139 @@ function setTrackMediaTime(trackNum, time) {
     item.audio.currentTime = safeTime;
   });
   updateTrackPlatterPosition(trackNum, safeTime);
+}
+
+const LOOP_EXIT_SETTINGS_KEY = 'notoMixer_loopExitActions';
+
+function hideLoopSettingsContextMenu() {
+  const menu = document.getElementById('loop-settings-context-menu');
+  if (!menu) return;
+  menu.classList.remove('show');
+  menu.setAttribute('aria-hidden', 'true');
+}
+
+function saveLoopExitSettings() {
+  localStorage.setItem(LOOP_EXIT_SETTINGS_KEY, JSON.stringify({
+    1: tracks[1].loopExitAction,
+    2: tracks[2].loopExitAction,
+    preview: prevLoopExitAction
+  }));
+}
+
+function loadLoopExitSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOOP_EXIT_SETTINGS_KEY) || '{}');
+    [1, 2].forEach(trackNum => {
+      if (saved[trackNum] === 'continue' || saved[trackNum] === 'stop') {
+        tracks[trackNum].loopExitAction = saved[trackNum];
+      }
+    });
+    if (saved.preview === 'continue' || saved.preview === 'stop') {
+      prevLoopExitAction = saved.preview;
+    }
+  } catch (error) {
+    localStorage.removeItem(LOOP_EXIT_SETTINGS_KEY);
+  }
+}
+
+function showLoopSettingsContextMenu(event, trackNum = null) {
+  const menu = document.getElementById('loop-settings-context-menu');
+  if (!menu) return;
+  const isPreview = trackNum === null;
+  const currentAction = isPreview
+    ? prevLoopExitAction
+    : tracks[trackNum].loopExitAction;
+  menu.replaceChildren();
+
+  const title = document.createElement('div');
+  title.className = 'macro-context-title';
+  title.textContent = `${isPreview ? 'PREVIEW' : `TRACK ${trackNum}`} · AFTER ONE-SHOT LOOP`;
+  menu.appendChild(title);
+
+  [
+    { value: 'continue', label: 'CONTINUE PLAYBACK' },
+    { value: 'stop', label: 'STOP TRACK' }
+  ].forEach(option => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'macro-context-item';
+    button.classList.toggle('selected', option.value === currentAction);
+    button.textContent = option.label;
+    button.addEventListener('click', () => {
+      if (isPreview) {
+        prevLoopExitAction = option.value;
+      } else {
+        tracks[trackNum].loopExitAction = option.value;
+      }
+      saveLoopExitSettings();
+      hideLoopSettingsContextMenu();
+    });
+    menu.appendChild(button);
+  });
+
+  menu.style.left = `${Math.max(4, Math.min(event.clientX, window.innerWidth - 215))}px`;
+  menu.style.top = `${Math.max(4, Math.min(event.clientY, window.innerHeight - 90))}px`;
+  menu.classList.add('show');
+  menu.setAttribute('aria-hidden', 'false');
+}
+
+function setupLoopSettingsContextMenu() {
+  loadLoopExitSettings();
+  document.addEventListener('mousedown', event => {
+    if (!event.target.closest?.('#loop-settings-context-menu')) {
+      hideLoopSettingsContextMenu();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') hideLoopSettingsContextMenu();
+  });
+  window.addEventListener('blur', hideLoopSettingsContextMenu);
+  window.addEventListener('resize', hideLoopSettingsContextMenu);
+}
+
+function hasValidTrackLoopRange(track) {
+  return Boolean(
+    track
+    && Number.isFinite(track.loopStartTime)
+    && Number.isFinite(track.loopEndTime)
+    && track.loopEndTime > track.loopStartTime
+  );
+}
+
+function updateTrackLoopActivationUi(trackNum, active, keepRange = false) {
+  const track = tracks[trackNum];
+  const autoButton = document.getElementById(`btn-auto-loop-${trackNum}`);
+  const inButton = document.getElementById(`btn-loop-in-${trackNum}`);
+  const outButton = document.getElementById(`btn-loop-out-${trackNum}`);
+  if (autoButton) {
+    autoButton.classList.toggle('active', active);
+    autoButton.textContent = active ? 'AUTO LOOP ON' : 'AUTO LOOP OFF';
+  }
+  if (inButton) {
+    inButton.classList.toggle('active', active || (keepRange && Number.isFinite(track?.loopStartTime)));
+  }
+  if (outButton) {
+    outButton.classList.toggle('active', active || (keepRange && Number.isFinite(track?.loopEndTime)));
+  }
+}
+
+function completeTrackOneShotLoop(trackNum) {
+  const track = tracks[trackNum];
+  if (!track?.loopEnabled || track.loopRepeatEnabled) return;
+  track.loopEnabled = false;
+  updateTrackLoopActivationUi(trackNum, false, true);
+  updateMusicEndingWarning(trackNum);
+  if (track.loopExitAction === 'stop') stopTrack(trackNum);
+}
+
+function restartTrackLoop(trackNum) {
+  const track = tracks[trackNum];
+  if (!track || track._playPending || !hasValidTrackLoopRange(track)) return;
+  setTrackMediaTime(trackNum, track.loopStartTime);
+  track.loopEnabled = true;
+  updateTrackLoopActivationUi(trackNum, true);
+  updateMusicEndingWarning(trackNum);
+  handleTrackProgress(trackNum);
 }
 
 function getEffectiveTrackEnd(trackNum, refAudio = getRefAudio(trackNum)) {
@@ -7619,6 +7799,8 @@ function setupUIListeners() {
     const btnLoopIn = document.getElementById(`btn-loop-in-${trackNum}`);
     const btnLoopOut = document.getElementById(`btn-loop-out-${trackNum}`);
     const btnLoopExit = document.getElementById(`btn-loop-exit-${trackNum}`);
+    const btnLoopRepeat = document.getElementById(`btn-loop-repeat-${trackNum}`);
+    const btnLoopRestart = document.getElementById(`btn-loop-restart-${trackNum}`);
     
     const loopOptions = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16];
     let selectedOptionIndex = 6; // default 4 BEATS
@@ -7782,6 +7964,19 @@ function setupUIListeners() {
         if (btnLoopOut) btnLoopOut.classList.remove('active');
         updateMusicEndingWarning(trackNum);
       });
+    }
+
+    if (btnLoopRepeat) {
+      btnLoopRepeat.addEventListener('click', () => {
+        const track = tracks[trackNum];
+        track.loopRepeatEnabled = !track.loopRepeatEnabled;
+        btnLoopRepeat.classList.toggle('active', track.loopRepeatEnabled);
+        btnLoopRepeat.setAttribute('aria-pressed', track.loopRepeatEnabled ? 'true' : 'false');
+      });
+    }
+
+    if (btnLoopRestart) {
+      btnLoopRestart.addEventListener('click', () => restartTrackLoop(trackNum));
     }
   });
 
@@ -8333,6 +8528,7 @@ let songAnalyzerUiState = {
   total: 0,
   completed: 0,
   failed: 0,
+  current: '',
   startedAt: 0
 };
 
@@ -8347,6 +8543,7 @@ function beginSongAnalyzerDaemon(total, generation) {
     total,
     completed: 0,
     failed: 0,
+    current: total === 1 ? '1 song queued' : `${total} songs queued`,
     startedAt: Date.now()
   };
 
@@ -8365,18 +8562,22 @@ function beginSongAnalyzerDaemon(total, generation) {
   const fill = document.getElementById('song-analyzer-progress-fill');
   if (progress) progress.setAttribute('aria-valuenow', '0');
   if (fill) fill.style.width = '0%';
+  publishTabletControllerState(true);
 }
 
 function setSongAnalyzerActiveSong(generation, songName) {
   if (generation !== songAnalyzerUiState.generation) return;
+  songAnalyzerUiState.current = songName;
   setSongAnalyzerUiText('song-analyzer-status', 'Preparing tracks');
   setSongAnalyzerUiText('song-analyzer-current', songName);
+  publishTabletControllerState(true);
 }
 
 function settleSongAnalyzerItem(generation, songName, failed = false) {
   if (generation !== songAnalyzerUiState.generation) return;
   songAnalyzerUiState.completed += 1;
   if (failed) songAnalyzerUiState.failed += 1;
+  songAnalyzerUiState.current = failed ? `${songName} — analysis failed` : `${songName} — ready`;
 
   const { completed, total } = songAnalyzerUiState;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 100;
@@ -8388,6 +8589,7 @@ function settleSongAnalyzerItem(generation, songName, failed = false) {
   const fill = document.getElementById('song-analyzer-progress-fill');
   if (progress) progress.setAttribute('aria-valuenow', String(percentage));
   if (fill) fill.style.width = `${percentage}%`;
+  publishTabletControllerState(true);
 }
 
 function closeSongAnalyzerDaemon(generation, failed = 0, immediate = false) {
@@ -8413,6 +8615,7 @@ function closeSongAnalyzerDaemon(generation, failed = 0, immediate = false) {
       overlay.setAttribute('aria-hidden', 'true');
     }
     initialSongCheckComplete = true;
+    publishTabletControllerState(true);
     maybeShowEvaluationNotice();
   }, finishDelay);
 }
@@ -8424,6 +8627,7 @@ function releaseInitialSongAnalyzerGate() {
     total: 0,
     completed: 0,
     failed: 0,
+    current: '',
     startedAt: Date.now()
   };
   closeSongAnalyzerDaemon(generation, 0, true);
@@ -8694,6 +8898,103 @@ function updateBpmCompatIndicators() {
   applySongListFilters();
 }
 
+function isWorkingDirectoryAvailable() {
+  if (!workingDir) return false;
+  try {
+    return fs.statSync(workingDir).isDirectory();
+  } catch (error) {
+    return false;
+  }
+}
+
+function updateWorkingDirectoryLabel() {
+  const pathLabel = document.getElementById('working-dir-path');
+  if (pathLabel) pathLabel.textContent = workingDir;
+  const headerTitle = document.getElementById('songs-header-title');
+  if (headerTitle) {
+    headerTitle.textContent = workingDir
+      ? `AVAILABLE SONGS (${workingDir})`
+      : 'AVAILABLE SONGS';
+  }
+}
+
+function renderMediaSupportAvailability(isRemoved) {
+  const songsGroup = document.querySelector('.explorer-songs-group');
+  const alert = document.getElementById('media-support-removed-alert');
+  songsGroup?.classList.toggle('media-support-removed', isRemoved);
+  if (alert) {
+    alert.hidden = !isRemoved;
+    alert.setAttribute('aria-hidden', isRemoved ? 'false' : 'true');
+  }
+}
+
+function resetSongAnalyzerForUnavailableSupport() {
+  const generation = ++songAnalyzerGeneration;
+  songAnalyzerQueue = Promise.resolve();
+  songAnalyzerUiState = {
+    generation,
+    total: 0,
+    completed: 0,
+    failed: 0,
+    current: '',
+    startedAt: Date.now()
+  };
+  closeSongAnalyzerDaemon(generation, 0, true);
+}
+
+function handleWorkingDirectoryUnavailable({ logChange = true } = {}) {
+  const stateChanged = workingDirectoryAvailable !== false;
+  workingDirectoryAvailable = false;
+  currentPlaylistFilter = '';
+  updateWorkingDirectoryLabel();
+  renderPlaylistNavigation([]);
+  renderMediaSupportAvailability(true);
+
+  const songsList = document.getElementById('songs-list');
+  if (songsList) songsList.innerHTML = '';
+
+  resetSongAnalyzerForUnavailableSupport();
+  publishTabletSongLibrary();
+  publishTabletControllerState(true);
+
+  if (stateChanged && logChange) {
+    logConsole(`Explorer: USB media support removed or unavailable (${workingDir})`, 'err');
+  }
+}
+
+function handleWorkingDirectoryAvailable({ logChange = true } = {}) {
+  const reconnected = workingDirectoryAvailable === false;
+  workingDirectoryAvailable = true;
+  updateWorkingDirectoryLabel();
+  renderMediaSupportAvailability(false);
+
+  if (reconnected && logChange) {
+    logConsole(`Explorer: USB media support reconnected (${workingDir})`, 'system');
+  }
+
+  scanWorkingDirectory();
+}
+
+function refreshWorkingDirectoryAvailability(options = {}) {
+  if (!workingDir) return;
+  const availableNow = isWorkingDirectoryAvailable();
+  if (availableNow === workingDirectoryAvailable) return;
+  if (availableNow) {
+    handleWorkingDirectoryAvailable(options);
+  } else {
+    handleWorkingDirectoryUnavailable(options);
+  }
+}
+
+function startWorkingDirectoryMonitor() {
+  if (workingDirectoryMonitorId !== null) {
+    window.clearInterval(workingDirectoryMonitorId);
+  }
+  workingDirectoryMonitorId = window.setInterval(() => {
+    refreshWorkingDirectoryAvailability();
+  }, WORKING_DIRECTORY_MONITOR_INTERVAL_MS);
+}
+
 function scanWorkingDirectory() {
   const songsList = document.getElementById('songs-list');
   if (!songsList) return;
@@ -8711,12 +9012,20 @@ function scanWorkingDirectory() {
       total: 0,
       completed: 0,
       failed: 0,
+      current: '',
       startedAt: Date.now()
     };
     closeSongAnalyzerDaemon(analyzerGeneration, 0, true);
     publishTabletSongLibrary();
     return;
   }
+
+  if (!isWorkingDirectoryAvailable()) {
+    handleWorkingDirectoryUnavailable();
+    return;
+  }
+  workingDirectoryAvailable = true;
+  renderMediaSupportAvailability(false);
 
   try {
     const { songs: songItems, playlists } = discoverSongLibrary();
@@ -8729,6 +9038,7 @@ function scanWorkingDirectory() {
         total: 0,
         completed: 0,
         failed: 0,
+        current: '',
         startedAt: Date.now()
       };
       closeSongAnalyzerDaemon(analyzerGeneration, 0, true);
@@ -8882,6 +9192,10 @@ function scanWorkingDirectory() {
     });
   } catch (err) {
     logConsole(`Err Explorer: Folder read failed: ${err.message}`, 'err');
+    if (!isWorkingDirectoryAvailable()) {
+      handleWorkingDirectoryUnavailable();
+      return;
+    }
     currentPlaylistFilter = '';
     renderPlaylistNavigation([]);
     songsList.innerHTML = `<li class="song-list-placeholder text-red">Read error</li>`;
@@ -8890,6 +9204,7 @@ function scanWorkingDirectory() {
       total: 0,
       completed: 0,
       failed: 1,
+      current: 'Music library read error',
       startedAt: Date.now()
     };
     closeSongAnalyzerDaemon(analyzerGeneration, 1);
@@ -9207,6 +9522,7 @@ function loadSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanv
   const job = songAnalyzerQueue
     .catch(() => {})
     .then(() => {
+      if (generation !== songAnalyzerGeneration) return null;
       setSongAnalyzerActiveSong(generation, songName);
       return analyzeSongMetadata(
         songPath,
@@ -9237,17 +9553,12 @@ function loadSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanv
 
 ipcRenderer.on('working-directory-selected', (event, dirPath) => {
   workingDir = dirPath;
+  workingDirectoryAvailable = null;
   currentPlaylistFilter = '';
   localStorage.setItem('notoMixer_workingDir', dirPath);
   persistUserSettings();
-  document.getElementById('working-dir-path').textContent = dirPath;
-  
-  const headerTitle = document.getElementById('songs-header-title');
-  if (headerTitle) {
-    headerTitle.textContent = dirPath ? `AVAILABLE SONGS (${dirPath})` : 'AVAILABLE SONGS';
-  }
-  
-  scanWorkingDirectory();
+  updateWorkingDirectoryLabel();
+  refreshWorkingDirectoryAvailability({ logChange: false });
 });
 
 function showConnectionModal() {
@@ -10624,13 +10935,15 @@ function startVisualizers() {
             oCtx.stroke();
 
             // Highlight loop region on overview
-            if (track.loopEnabled && track.loopStartTime !== null && track.loopEndTime !== null) {
+            if (hasValidTrackLoopRange(track)) {
               const loopStartX = (track.loopStartTime / duration) * oW;
               const loopEndX = (track.loopEndTime / duration) * oW;
               
-              oCtx.fillStyle = 'rgba(0, 255, 204, 0.25)';
+              oCtx.fillStyle = track.loopEnabled
+                ? 'rgba(0, 255, 204, 0.25)'
+                : 'rgba(145, 145, 145, 0.18)';
               oCtx.fillRect(loopStartX, 0, loopEndX - loopStartX, oH);
-              oCtx.strokeStyle = '#00ffcc';
+              oCtx.strokeStyle = track.loopEnabled ? '#00ffcc' : '#777777';
               oCtx.lineWidth = 1;
               oCtx.beginPath();
               oCtx.moveTo(loopStartX, 0); oCtx.lineTo(loopStartX, oH);
@@ -10691,13 +11004,21 @@ function startVisualizers() {
         // Loop Check
         if (track.loopEnabled && track.loopStartTime !== null && track.loopEndTime !== null && track.loopEndTime > track.loopStartTime) {
           if (refAudio) {
-            const loopPosition = resolveTrackTimeWithinActiveLoop(
-              trackNum,
-              refAudio.currentTime,
-              refAudio.duration
-            );
-            if (loopPosition.wrapped) {
-              setTrackMediaTime(trackNum, loopPosition.time);
+            if (track.loopRepeatEnabled) {
+              const loopPosition = resolveTrackTimeWithinActiveLoop(
+                trackNum,
+                refAudio.currentTime,
+                refAudio.duration
+              );
+              if (loopPosition.wrapped) {
+                setTrackMediaTime(trackNum, loopPosition.time);
+              }
+            } else if (refAudio.currentTime >= track.loopEndTime) {
+              if (track.isPlaying) {
+                completeTrackOneShotLoop(trackNum);
+              } else {
+                setTrackMediaTime(trackNum, track.loopStartTime);
+              }
             }
           }
         }
@@ -10953,17 +11274,19 @@ function startVisualizers() {
             ctx.fill();
             
             // Highlight current loop boundaries on scrolling waveform
-            if (track.loopEnabled && track.loopStartTime !== null && track.loopEndTime !== null) {
+            if (hasValidTrackLoopRange(track)) {
               const startPct = track.loopStartTime / duration;
               const endPct = track.loopEndTime / duration;
               
               const startX = width / 2 + ((startPct - currentPct) / zoomPercent) * (width / 2);
               const endX = width / 2 + ((endPct - currentPct) / zoomPercent) * (width / 2);
               
-              ctx.fillStyle = 'rgba(0, 255, 204, 0.15)';
+              ctx.fillStyle = track.loopEnabled
+                ? 'rgba(0, 255, 204, 0.15)'
+                : 'rgba(145, 145, 145, 0.12)';
               ctx.fillRect(startX, 0, endX - startX, height);
               
-              ctx.strokeStyle = '#00ffcc';
+              ctx.strokeStyle = track.loopEnabled ? '#00ffcc' : '#777777';
               ctx.lineWidth = 1.5;
               ctx.beginPath();
               ctx.moveTo(startX, 0); ctx.lineTo(startX, height);
@@ -11223,6 +11546,7 @@ window.addEventListener('DOMContentLoaded', () => {
   loadJogPhysicsSettings();
   populateKeyboardBindingInputs();
   setupMacroUI();
+  setupLoopSettingsContextMenu();
   setupUIListeners();
   setupKeyboardShortcuts();
   setupMidiControllerUI();
@@ -11282,17 +11606,16 @@ window.addEventListener('DOMContentLoaded', () => {
   
   // Proactive: Restore previously selected working directory if saved
   const savedDir = localStorage.getItem('notoMixer_workingDir');
-  if (savedDir && fs.existsSync(savedDir)) {
+  if (savedDir) {
     workingDir = savedDir;
-    document.getElementById('working-dir-path').textContent = savedDir;
-    const headerTitle = document.getElementById('songs-header-title');
-    if (headerTitle) {
-      headerTitle.textContent = `AVAILABLE SONGS (${savedDir})`;
-    }
-    scanWorkingDirectory();
+    workingDirectoryAvailable = null;
+    updateWorkingDirectoryLabel();
+    refreshWorkingDirectoryAvailability();
   } else {
+    renderMediaSupportAvailability(false);
     releaseInitialSongAnalyzerGate();
   }
+  startWorkingDirectoryMonitor();
   
   // Modal Buttons listeners
   const btnRetry = document.getElementById('modal-btn-retry');
@@ -11767,6 +12090,8 @@ let prevMetronomeIntervalId = null;
 
 // Loop State for Preview
 let prevLoopEnabled = false;
+let prevLoopRepeatEnabled = true;
+let prevLoopExitAction = 'continue';
 let prevLoopStartTime = null;
 let prevLoopEndTime = null;
 let prevAutoLoopBeats = 4;
@@ -12439,6 +12764,56 @@ function generatePreviewStaticWaveform(dirPath, files) {
   });
 }
 
+function setPreviewMediaTime(time) {
+  const safeTime = Math.max(0, Number(time) || 0);
+  if (previewStems.main.exists) previewStems.main.audio.currentTime = safeTime;
+  if (previewStems.vocals.exists) previewStems.vocals.audio.currentTime = safeTime;
+  previewStems.inst.audios.forEach(item => {
+    item.audio.currentTime = safeTime;
+  });
+}
+
+function hasValidPreviewLoopRange() {
+  return Number.isFinite(prevLoopStartTime)
+    && Number.isFinite(prevLoopEndTime)
+    && prevLoopEndTime > prevLoopStartTime;
+}
+
+function updatePreviewLoopActivationUi(active, keepRange = false) {
+  const autoButton = document.getElementById('prev-btn-auto-loop');
+  const inButton = document.getElementById('prev-btn-loop-in');
+  const outButton = document.getElementById('prev-btn-loop-out');
+  if (autoButton) {
+    autoButton.classList.toggle('active', active);
+    autoButton.textContent = active ? 'AUTO LOOP ON' : 'AUTO LOOP OFF';
+  }
+  if (inButton) {
+    inButton.classList.toggle('active', active || (keepRange && Number.isFinite(prevLoopStartTime)));
+  }
+  if (outButton) {
+    outButton.classList.toggle('active', active || (keepRange && Number.isFinite(prevLoopEndTime)));
+  }
+}
+
+function completePreviewOneShotLoop() {
+  if (!prevLoopEnabled || prevLoopRepeatEnabled) return;
+  prevLoopEnabled = false;
+  updatePreviewLoopActivationUi(false, true);
+  if (prevLoopExitAction === 'stop') {
+    stopPreviewTrack();
+    setPreviewMediaTime(0);
+    updatePreviewProgress();
+  }
+}
+
+function restartPreviewLoop() {
+  if (!hasValidPreviewLoopRange()) return;
+  setPreviewMediaTime(prevLoopStartTime);
+  prevLoopEnabled = true;
+  updatePreviewLoopActivationUi(true);
+  updatePreviewProgress();
+}
+
 function updatePreviewProgress() {
   let refAudio = null;
   if (previewStems.main.exists) refAudio = previewStems.main.audio;
@@ -12799,14 +13174,16 @@ function drawPrevVisualizer() {
       oCtx.stroke();
 
       // Highlight preview loop region on overview
-      if (prevLoopEnabled && prevLoopStartTime !== null && prevLoopEndTime !== null) {
+      if (hasValidPreviewLoopRange()) {
         const duration = (refAudio && refAudio.duration) ? refAudio.duration : 180;
         const loopStartX = (prevLoopStartTime / duration) * oW;
         const loopEndX = (prevLoopEndTime / duration) * oW;
         
-        oCtx.fillStyle = 'rgba(0, 255, 204, 0.25)';
+        oCtx.fillStyle = prevLoopEnabled
+          ? 'rgba(0, 255, 204, 0.25)'
+          : 'rgba(145, 145, 145, 0.18)';
         oCtx.fillRect(loopStartX, 0, loopEndX - loopStartX, oH);
-        oCtx.strokeStyle = '#00ffcc';
+        oCtx.strokeStyle = prevLoopEnabled ? '#00ffcc' : '#777777';
         oCtx.lineWidth = 1;
         oCtx.beginPath();
         oCtx.moveTo(loopStartX, 0); oCtx.lineTo(loopStartX, oH);
@@ -12823,12 +13200,15 @@ function drawPrevVisualizer() {
       else if (previewStems.inst.audios.length > 0) refAudio = previewStems.inst.audios[0].audio;
       
       if (refAudio && refAudio.currentTime >= prevLoopEndTime) {
-        const overshoot = refAudio.currentTime - prevLoopEndTime;
-        const targetTime = prevLoopStartTime + (overshoot % (prevLoopEndTime - prevLoopStartTime));
-        
-        if (previewStems.main.exists) previewStems.main.audio.currentTime = targetTime;
-        if (previewStems.vocals.exists) previewStems.vocals.audio.currentTime = targetTime;
-        previewStems.inst.audios.forEach(item => item.audio.currentTime = targetTime);
+        if (prevLoopRepeatEnabled) {
+          const overshoot = refAudio.currentTime - prevLoopEndTime;
+          const targetTime = prevLoopStartTime + (overshoot % (prevLoopEndTime - prevLoopStartTime));
+          setPreviewMediaTime(targetTime);
+        } else if (previewIsPlaying) {
+          completePreviewOneShotLoop();
+        } else {
+          setPreviewMediaTime(prevLoopStartTime);
+        }
       }
     }
     
@@ -13079,17 +13459,19 @@ function drawPrevVisualizer() {
         ctx.fill();
         
         // Highlight preview loop boundaries on scrolling waveform
-        if (prevLoopEnabled && prevLoopStartTime !== null && prevLoopEndTime !== null) {
+        if (hasValidPreviewLoopRange()) {
           const startPct = prevLoopStartTime / duration;
           const endPct = prevLoopEndTime / duration;
           
           const startX = width / 2 + ((startPct - currentPct) / zoomPercent) * (width / 2);
           const endX = width / 2 + ((endPct - currentPct) / zoomPercent) * (width / 2);
           
-          ctx.fillStyle = 'rgba(0, 255, 204, 0.15)'; // Cyan overlay matching standard track theme
+          ctx.fillStyle = prevLoopEnabled
+            ? 'rgba(0, 255, 204, 0.15)'
+            : 'rgba(145, 145, 145, 0.12)';
           ctx.fillRect(startX, 0, endX - startX, height);
           
-          ctx.strokeStyle = '#00ffcc';
+          ctx.strokeStyle = prevLoopEnabled ? '#00ffcc' : '#777777';
           ctx.lineWidth = 1.5;
           ctx.beginPath();
           ctx.moveTo(startX, 0); ctx.lineTo(startX, height);
@@ -13283,6 +13665,8 @@ function initInAppPreview() {
   const btnLoopIn = document.getElementById('prev-btn-loop-in');
   const btnLoopOut = document.getElementById('prev-btn-loop-out');
   const btnLoopExit = document.getElementById('prev-btn-loop-exit');
+  const btnLoopRepeat = document.getElementById('prev-btn-loop-repeat');
+  const btnLoopRestart = document.getElementById('prev-btn-loop-restart');
   
   const loopOptions = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16];
   let selectedOptionIndex = 6; // default 4 BEATS
@@ -13423,6 +13807,18 @@ function initInAppPreview() {
       if (btnLoopIn) btnLoopIn.classList.remove('active');
       if (btnLoopOut) btnLoopOut.classList.remove('active');
     });
+  }
+
+  if (btnLoopRepeat) {
+    btnLoopRepeat.addEventListener('click', () => {
+      prevLoopRepeatEnabled = !prevLoopRepeatEnabled;
+      btnLoopRepeat.classList.toggle('active', prevLoopRepeatEnabled);
+      btnLoopRepeat.setAttribute('aria-pressed', prevLoopRepeatEnabled ? 'true' : 'false');
+    });
+  }
+
+  if (btnLoopRestart) {
+    btnLoopRestart.addEventListener('click', restartPreviewLoop);
   }
 
   const progHit = document.getElementById('prev-prog-hit');

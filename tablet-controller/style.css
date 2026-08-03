@@ -10,6 +10,7 @@
   --track-two: #ff5500;
   --track-one-header: #2b4c59;
   --track-two-header: #59352b;
+  --exertia-green: #a2db22;
   color-scheme: dark;
   font-family: Inter, "Segoe UI", Arial, sans-serif;
 }
@@ -112,6 +113,166 @@ button {
 
 .connection-state.connected strong {
   color: var(--track-one);
+}
+
+.song-analyzer-daemon-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 5, 7, 0.42);
+}
+
+.song-analyzer-daemon-overlay[hidden] {
+  display: none;
+}
+
+.song-analyzer-daemon-panel {
+  width: min(520px, calc(100vw - 48px));
+  color: var(--text-active);
+  background: #111216;
+  border: 1px solid #555961;
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.75), 0 0 35px rgba(162, 219, 34, 0.09);
+}
+
+.song-analyzer-daemon-header {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  color: #e8edf3;
+  background: #25272c;
+  border-bottom: 1px solid #555961;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+}
+
+.song-analyzer-daemon-led {
+  width: 8px;
+  height: 8px;
+  background: var(--exertia-green);
+  box-shadow: 0 0 9px rgba(162, 219, 34, 0.9);
+  animation: song-analyzer-led 900ms steps(2, end) infinite;
+}
+
+.song-analyzer-daemon-body {
+  padding: 20px 22px 18px;
+}
+
+.song-analyzer-daemon-mark {
+  height: 34px;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  margin-bottom: 15px;
+}
+
+.song-analyzer-daemon-mark span {
+  width: 5px;
+  background: var(--exertia-green);
+  box-shadow: 0 0 10px rgba(162, 219, 34, 0.3);
+  animation: song-analyzer-bars 720ms ease-in-out infinite alternate;
+}
+
+.song-analyzer-daemon-mark span:nth-child(1) { height: 12px; animation-delay: -500ms; }
+.song-analyzer-daemon-mark span:nth-child(2) { height: 25px; animation-delay: -360ms; }
+.song-analyzer-daemon-mark span:nth-child(3) { height: 18px; animation-delay: -220ms; }
+.song-analyzer-daemon-mark span:nth-child(4) { height: 31px; animation-delay: -80ms; }
+.song-analyzer-daemon-mark span:nth-child(5) { height: 15px; animation-delay: -430ms; }
+
+.song-analyzer-daemon-status {
+  margin: 0 0 6px;
+  color: #f3f5f7;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.song-analyzer-daemon-current {
+  height: 16px;
+  margin: 0 0 14px;
+  overflow: hidden;
+  color: #979da8;
+  font-family: "Courier Prime", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-analyzer-progress {
+  position: relative;
+  height: 13px;
+  overflow: hidden;
+  background: #08090b;
+  border: 1px solid #484c53;
+}
+
+.song-analyzer-progress-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #719e11, var(--exertia-green));
+  box-shadow: 0 0 12px rgba(162, 219, 34, 0.4);
+  transition: width 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.song-analyzer-progress-scanline {
+  position: absolute;
+  inset: 0;
+  width: 28%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  animation: song-analyzer-scan 1.25s linear infinite;
+}
+
+.song-analyzer-daemon-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  color: #737985;
+  font-family: "Courier Prime", "Courier New", monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.song-analyzer-controller-note {
+  margin: 15px 0 0;
+  padding-top: 13px;
+  color: #979da8;
+  border-top: 1px solid #2e3137;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+@keyframes song-analyzer-led {
+  50% { opacity: 0.35; }
+}
+
+@keyframes song-analyzer-bars {
+  from { transform: scaleY(0.35); opacity: 0.45; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes song-analyzer-scan {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(370%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .song-analyzer-daemon-led,
+  .song-analyzer-daemon-mark span,
+  .song-analyzer-progress-scanline {
+    animation: none;
+  }
+
+  .song-analyzer-progress-fill {
+    transition: none;
+  }
 }
 
 .decks {

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const { randomUUID } = require('crypto');
 const { spawn } = require('child_process');
 const os = require('os');
 const { pathToFileURL } = require('url');
@@ -22,6 +23,7 @@ let targetPortName = '';
 
 let splash;
 const TABLET_CONTROLLER_PORT = 37840;
+const TABLET_CONTROLLER_SESSION_ID = randomUUID();
 const NOTOMIXER_ROOT = process.env.NOTOMIXER_INSTALL_ROOT
   ? path.resolve(process.env.NOTOMIXER_INSTALL_ROOT)
   : app.isPackaged
@@ -37,6 +39,13 @@ let updateCheckPromise = null;
 let updateDownloadPromise = null;
 let tabletControllerState = {
   type: 'state',
+  libraryAnalysis: {
+    inProgress: true,
+    total: 0,
+    completed: 0,
+    failed: 0,
+    current: ''
+  },
   tracks: []
 };
 let tabletControllerLibrary = {
@@ -273,7 +282,27 @@ function sanitizeTabletControllerState(nextState) {
         };
       })
     : [];
-  return { type: 'state', jogPhysics, tracks };
+  const requestedAnalysisTotal = Number(nextState?.libraryAnalysis?.total);
+  const requestedAnalysisCompleted = Number(nextState?.libraryAnalysis?.completed);
+  const requestedAnalysisFailed = Number(nextState?.libraryAnalysis?.failed);
+  const libraryAnalysis = {
+    inProgress: nextState?.libraryAnalysis?.inProgress === true,
+    current: typeof nextState?.libraryAnalysis?.current === 'string'
+      ? nextState.libraryAnalysis.current.slice(0, 300)
+      : '',
+    total: Number.isFinite(requestedAnalysisTotal)
+      ? Math.max(0, Math.floor(requestedAnalysisTotal))
+      : 0,
+    completed: Number.isFinite(requestedAnalysisCompleted)
+      ? Math.max(0, Math.floor(requestedAnalysisCompleted))
+      : 0,
+    failed: Number.isFinite(requestedAnalysisFailed)
+      ? Math.max(0, Math.floor(requestedAnalysisFailed))
+      : 0
+  };
+  libraryAnalysis.completed = Math.min(libraryAnalysis.completed, libraryAnalysis.total);
+  libraryAnalysis.failed = Math.min(libraryAnalysis.failed, libraryAnalysis.completed);
+  return { type: 'state', jogPhysics, libraryAnalysis, tracks };
 }
 
 function sanitizeTabletControllerLibrary(nextLibrary) {
@@ -334,6 +363,14 @@ function sendTabletState(socket) {
   socket.send(JSON.stringify(tabletControllerState));
 }
 
+function sendTabletSession(socket) {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({
+    type: 'session',
+    sessionId: TABLET_CONTROLLER_SESSION_ID
+  }));
+}
+
 function sendTabletLibrary(socket) {
   if (socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify(tabletControllerLibrary));
@@ -356,6 +393,12 @@ function notifyTabletConnectionCount() {
 
 function forwardTabletControllerInput(payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (
+    tabletControllerState.libraryAnalysis?.inProgress === true
+    && payload.type !== 'jogEnd'
+  ) {
+    return;
+  }
   if (payload.type === 'jogStart' || payload.type === 'jogEnd') {
     const trackNum = Number(payload.trackNum);
     if (trackNum === 1 || trackNum === 2) {
@@ -445,6 +488,7 @@ function startTabletControllerServer() {
     });
 
     tabletControllerWebSocketServer.on('connection', socket => {
+      sendTabletSession(socket);
       sendTabletState(socket);
       notifyTabletConnectionCount();
       socket.on('message', rawMessage => {

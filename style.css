@@ -3400,6 +3400,51 @@ body.app-daemon-locked > .in-app-window {
   box-shadow: 0 0 6px rgba(162, 219, 34, 0.4);
 }
 
+.loop-strip-btn.btn-loop-repeat.active {
+  background-color: #00b86b !important;
+  border-color: #00d27a !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 6px rgba(0, 210, 122, 0.35);
+}
+
+.loop-strip-btn.btn-loop-restart {
+  display: inline-flex;
+  width: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  line-height: 1;
+}
+
+.loop-strip-btn.btn-loop-restart svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: auto;
+  fill: currentColor;
+  stroke: none;
+  transform: translate(-0.5px, 0.5px);
+}
+
+.loop-strip-separator {
+  width: 1px;
+  height: 16px;
+  flex: 0 0 1px;
+  margin: 0 2px;
+  background: var(--border-light);
+}
+
+.loop-settings-context-menu {
+  min-width: 205px;
+}
+
+.loop-settings-context-menu .macro-context-item.selected::after {
+  color: var(--exertia-green);
+  font-size: 11px;
+  font-weight: 900;
+  content: "✓";
+}
+
 .loop-strip-adjuster {
   display: flex;
   align-items: center;
@@ -3515,7 +3560,67 @@ body.app-daemon-locked > .in-app-window {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0; 
+  min-height: 0;
+  position: relative;
+}
+
+.explorer-songs-group.media-support-removed {
+  overflow: hidden;
+  background: #ff0000;
+}
+
+.explorer-songs-group.media-support-removed > :not(.media-support-removed-alert) {
+  visibility: hidden;
+}
+
+.media-support-removed-alert {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 18px;
+  color: #fff;
+  background: #ff0000;
+  text-align: center;
+}
+
+.media-support-removed-alert[hidden] {
+  display: none;
+}
+
+.media-support-warning-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 3px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 4;
+}
+
+.media-support-warning-icon circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.media-support-removed-alert strong {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.65px;
+}
+
+.media-support-removed-alert p {
+  max-width: 470px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .app-update-settings-card {
@@ -4028,6 +4133,20 @@ body.app-daemon-locked > .in-app-window {
   height: calc(22px * var(--zoom-buttons)) !important;
   padding: 0 calc(6px * var(--zoom-buttons)) !important;
   font-size: calc(8px * var(--zoom-buttons)) !important;
+}
+
+.loop-strip-btn.btn-loop-restart {
+  width: calc(24px * var(--zoom-buttons)) !important;
+  padding: 0 !important;
+}
+
+.loop-strip-btn.btn-loop-restart svg {
+  width: calc(14px * var(--zoom-buttons));
+  height: calc(14px * var(--zoom-buttons));
+}
+
+.loop-strip-separator {
+  height: calc(16px * var(--zoom-buttons));
 }
 
 .loop-strip-adjuster {
