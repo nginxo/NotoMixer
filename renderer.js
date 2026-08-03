@@ -1,4 +1,4 @@
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, webUtils } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -18,6 +18,19 @@ const notoMixerRoot = process.env.NOTOMIXER_INSTALL_ROOT
 const notoMixerAssetsRoot = path.join(notoMixerRoot, 'assets');
 const getNotoMixerAssetUrl = (...segments) =>
   pathToFileURL(path.join(notoMixerAssetsRoot, ...segments)).href;
+
+function getDroppedFilePath(file) {
+  if (!file) return '';
+  try {
+    if (webUtils && typeof webUtils.getPathForFile === 'function') {
+      const filePath = webUtils.getPathForFile(file);
+      if (filePath) return filePath;
+    }
+  } catch (error) {
+    console.warn('Unable to resolve dropped file through Electron webUtils.', error);
+  }
+  return typeof file.path === 'string' ? file.path : '';
+}
 
 const headerLogo = document.querySelector('.header-logo-mark');
 if (headerLogo) {
@@ -680,7 +693,7 @@ function isKeyboardShortcutBlocked(event) {
   if (document.body.classList.contains('app-daemon-locked')) return true;
   return Boolean(
     document.querySelector(
-      '#settings-modal.show, #end-sync-modal.show, #connection-modal.show, #evaluation-modal.show, #app-update-modal.show, #tablet-controller-modal.show, #cue-settings-window.show, #midi-mapping-modal.show'
+      '#settings-modal.show, #end-sync-modal.show, #connection-modal.show, #evaluation-modal.show, #app-update-modal.show, #tablet-controller-modal.show, #cue-settings-window.show, #sample-settings-window.show, #midi-mapping-modal.show'
     )
   );
 }
@@ -3057,6 +3070,8 @@ const tracks = {
     ],
     hotCues: Array(8).fill(null),
     cueModes: Array(8).fill('play'),
+    sampleModes: Array(8).fill('ontop'),
+    activeSampleSources: Array.from({ length: 8 }, () => new Set()),
     activeHoldCueIdx: null,
     // EQ filters (applied on combined mix)
     bassFilter: null,
@@ -3161,6 +3176,8 @@ const tracks = {
     ],
     hotCues: Array(8).fill(null),
     cueModes: Array(8).fill('play'),
+    sampleModes: Array(8).fill('ontop'),
+    activeSampleSources: Array.from({ length: 8 }, () => new Set()),
     activeHoldCueIdx: null,
     // EQ filters (applied on combined mix)
     bassFilter: null,
@@ -3806,6 +3823,7 @@ function setHotCueFromMacroMenu(trackNum, buttonIndex) {
     '#00ffff', '#0055ff', '#aa00ff', '#ff00aa'
   ];
   const cueColor = hotCueColors[buttonIndex % hotCueColors.length];
+  stopTrackSampleEffect(trackNum, buttonIndex);
   track.hotCues[buttonIndex] = cueTime;
   track.soundButtons[buttonIndex] = { path: '', name: 'CUE', buffer: null };
   renderHotCueButtonLabel(button, buttonIndex, cueTime);
@@ -3881,13 +3899,23 @@ function showMacroAssignContextMenu(event, descriptor) {
 
   const soundMatch = descriptor.buttonId?.match(/^sound-btn-[12]-(\d+)$/);
   if (soundMatch) {
+    const buttonIndex = Number(soundMatch[1]);
     const separator = document.createElement('div');
     separator.className = 'macro-context-separator';
     menu.appendChild(separator);
+    const soundData = tracks[descriptor.trackNum].soundButtons[buttonIndex];
+    if (
+      soundData?.buffer
+      && !Number.isFinite(tracks[descriptor.trackNum].hotCues[buttonIndex])
+    ) {
+      addMacroContextAction(menu, 'EFFECT SETTINGS', () => {
+        openSampleSettings({ trackNum: descriptor.trackNum, buttonIndex });
+      });
+    }
     addMacroContextAction(menu, 'SET HOT CUE', () => {
       setHotCueFromMacroMenu(
         descriptor.trackNum,
-        Number(soundMatch[1])
+        buttonIndex
       );
     });
   }
@@ -4772,6 +4800,7 @@ function clearEndSyncCueAssignmentsForCue(cueTrackNum, cueIndex) {
 
 function renderHotCueButtonLabel(button, cueIndex, cueTime) {
   if (!button || !Number.isFinite(cueTime)) return;
+  button.classList.remove('empty-sound-btn');
 
   const cueName = document.createElement('span');
   cueName.className = 'sound-btn-cue-name';
@@ -4782,6 +4811,102 @@ function renderHotCueButtonLabel(button, cueIndex, cueTime) {
   cueTimeline.textContent = formatTime(cueTime);
 
   button.replaceChildren(cueName, cueTimeline);
+}
+
+function renderEmptySoundButtonLabel(button) {
+  if (!button) return;
+  const dropLabel = document.createElement('span');
+  dropLabel.className = 'sound-btn-empty-primary';
+  dropLabel.textContent = 'DROP FILE';
+  const divider = document.createElement('span');
+  divider.className = 'sound-btn-empty-divider';
+  divider.setAttribute('aria-hidden', 'true');
+  const rightClickLabel = document.createElement('span');
+  rightClickLabel.className = 'sound-btn-empty-secondary';
+  rightClickLabel.textContent = 'RIGHT CLICK';
+  button.replaceChildren(dropLabel, divider, rightClickLabel);
+  button.classList.add('empty-sound-btn');
+}
+
+function initializeEmptySoundButtonLabels() {
+  document.querySelectorAll('.sound-btn').forEach(button => {
+    if ((button.textContent || '').trim() === 'DROP FILE') {
+      renderEmptySoundButtonLabel(button);
+    }
+  });
+}
+
+function stopTrackSampleEffect(trackNum, buttonIndex, { logStop = false } = {}) {
+  const track = tracks[trackNum];
+  const activeSources = track?.activeSampleSources?.[buttonIndex];
+  if (!activeSources) return false;
+  const hadActiveSources = activeSources.size > 0;
+
+  activeSources.forEach(sourceNode => {
+    try { sourceNode.stop(); } catch (error) {}
+    try { sourceNode.disconnect(); } catch (error) {}
+  });
+  activeSources.clear();
+  document.getElementById(`sound-btn-${trackNum}-${buttonIndex}`)
+    ?.classList.remove('playing');
+
+  if (hadActiveSources && logStop) {
+    logConsole(
+      `Effect: Stopped Track ${trackNum} button ${buttonIndex + 1}`,
+      'system'
+    );
+  }
+  return hadActiveSources;
+}
+
+function playTrackSampleEffect(trackNum, buttonIndex, button) {
+  const track = tracks[trackNum];
+  const soundData = track?.soundButtons?.[buttonIndex];
+  if (!soundData?.buffer) return false;
+
+  initAudio(trackNum);
+  if (audioCtx?.state === 'suspended') audioCtx.resume();
+  if (track.sampleModes[buttonIndex] === 'restart') {
+    stopTrackSampleEffect(trackNum, buttonIndex);
+  }
+
+  try {
+    const sourceNode = audioCtx.createBufferSource();
+    const activeSources = track.activeSampleSources[buttonIndex];
+    sourceNode.buffer = soundData.buffer;
+    sourceNode.connect(track.bassFilter);
+    activeSources.add(sourceNode);
+    button.classList.add('playing');
+    sourceNode.onended = () => {
+      activeSources.delete(sourceNode);
+      try { sourceNode.disconnect(); } catch (error) {}
+      if (activeSources.size === 0) button.classList.remove('playing');
+    };
+    sourceNode.start(0);
+    return true;
+  } catch (playError) {
+    logConsole(`Err: Failed to play sample: ${playError.message}`, 'err');
+    return false;
+  }
+}
+
+function clearTrackSampleEffect(trackNum, buttonIndex) {
+  const track = tracks[trackNum];
+  if (!track) return;
+  stopTrackSampleEffect(trackNum, buttonIndex);
+  track.hotCues[buttonIndex] = null;
+  track.cueModes[buttonIndex] = 'play';
+  track.sampleModes[buttonIndex] = 'ontop';
+  track.soundButtons[buttonIndex] = { path: '', name: 'DROP FILE', buffer: null };
+
+  const button = document.getElementById(`sound-btn-${trackNum}-${buttonIndex}`);
+  if (!button) return;
+  renderEmptySoundButtonLabel(button);
+  button.classList.remove('loaded', 'cue-draggable', 'playing', 'holding');
+  button.draggable = false;
+  button.style.color = '';
+  button.style.borderColor = '';
+  button.title = '';
 }
 
 function clearTrackHotCues(trackNum) {
@@ -4795,7 +4920,7 @@ function clearTrackHotCues(trackNum) {
 
     const button = document.getElementById(`sound-btn-${trackNum}-${cueIndex}`);
     if (button) {
-      button.textContent = 'DROP FILE';
+      renderEmptySoundButtonLabel(button);
       button.classList.remove('loaded', 'cue-draggable', 'playing', 'holding');
       button.draggable = false;
       button.style.color = '';
@@ -7410,7 +7535,12 @@ function setupUIListeners() {
       
       if (e.dataTransfer.files.length > 0) {
         const file = e.dataTransfer.files[0];
-        loadDirectoryStems(trackNum, file.path);
+        const filePath = getDroppedFilePath(file);
+        if (filePath) {
+          loadDirectoryStems(trackNum, filePath);
+        } else {
+          logConsole('Err: Unable to resolve the dropped file path', 'err');
+        }
       } else {
         const folderName = e.dataTransfer.getData('text/plain');
         if (folderName && workingDir) {
@@ -7503,48 +7633,56 @@ function setupUIListeners() {
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
           const file = files[0];
-          const filePath = file.path;
+          const filePath = getDroppedFilePath(file);
+          const fileName = file.name || path.basename(filePath);
+
+          if (!filePath) {
+            logConsole('Err: Unable to resolve the dropped audio file path', 'err');
+            return;
+          }
           
           const ext = path.extname(filePath).toLowerCase();
           const audioExtensions = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a'];
           if (!audioExtensions.includes(ext)) {
-            logConsole(`Err: File dropped is not a supported audio format: ${file.name}`, 'err');
+            logConsole(`Err: File dropped is not a supported audio format: ${fileName}`, 'err');
             return;
           }
           
           try {
             initAudio(trackNum);
             btn.textContent = "LOADING...";
+            btn.classList.remove('empty-sound-btn');
             
             const fileData = fs.readFileSync(filePath);
             const arrayBuffer = fileData.buffer.slice(fileData.byteOffset, fileData.byteOffset + fileData.byteLength);
             
             audioCtx.decodeAudioData(arrayBuffer, (audioBuffer) => {
+              stopTrackSampleEffect(trackNum, btnIdx);
               tracks[trackNum].soundButtons[btnIdx] = {
                 path: filePath,
-                name: file.name,
+                name: fileName,
                 buffer: audioBuffer
               };
               
-              btn.textContent = file.name.toUpperCase();
+              btn.textContent = fileName.toUpperCase();
               btn.classList.add('loaded');
               btn.style.color = ''; // Reset inline color
               btn.style.borderColor = ''; // Reset inline border color
-              btn.title = filePath;
+              btn.title = `${filePath} — right-click for effect settings; middle-click to stop`;
               
               // Also clear any hot cue for this slot
               tracks[trackNum].hotCues[btnIdx] = null;
               clearEndSyncCueAssignmentsForCue(trackNum, btnIdx);
               btn.draggable = false;
               btn.classList.remove('cue-draggable');
-              logConsole(`Success: Loaded sample '${file.name}' into Track ${trackNum} button ${btnIdx + 1}`, 'system');
+              logConsole(`Success: Loaded sample '${fileName}' into Track ${trackNum} button ${btnIdx + 1}`, 'system');
             }, (decodeErr) => {
               btn.textContent = "DECODE ERR";
-              logConsole(`Err: Decode failed for '${file.name}': ${decodeErr.message}`, 'err');
+              logConsole(`Err: Decode failed for '${fileName}': ${decodeErr.message}`, 'err');
             });
           } catch (readErr) {
             btn.textContent = "READ ERR";
-            logConsole(`Err: Failed to read file '${file.name}': ${readErr.message}`, 'err');
+            logConsole(`Err: Failed to read file '${fileName}': ${readErr.message}`, 'err');
           }
         }
       });
@@ -7563,6 +7701,7 @@ function setupUIListeners() {
           track.hotCues[btnIdx] = cueTime;
           const hotCueColors = ['#ff0055', '#ffaa00', '#ffff00', '#00ff00', '#00ffff', '#0055ff', '#aa00ff', '#ff00aa'];
           const cueColor = hotCueColors[btnIdx % hotCueColors.length];
+          stopTrackSampleEffect(trackNum, btnIdx);
           track.soundButtons[btnIdx] = { path: '', name: 'CUE', buffer: null };
           
           renderHotCueButtonLabel(btn, btnIdx, cueTime);
@@ -7580,6 +7719,10 @@ function setupUIListeners() {
       });
 
       btn.addEventListener('mousedown', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          return;
+        }
         if (e.button !== 0) return; // Only left click for play/hold
         
         const track = tracks[trackNum];
@@ -7594,23 +7737,7 @@ function setupUIListeners() {
           // It's a Sample (or empty)
           const soundData = track.soundButtons[btnIdx];
           if (soundData && soundData.buffer) {
-            initAudio(trackNum);
-            if (audioCtx && audioCtx.state === 'suspended') {
-              audioCtx.resume();
-            }
-            try {
-              const sourceNode = audioCtx.createBufferSource();
-              sourceNode.buffer = soundData.buffer;
-              sourceNode.connect(track.bassFilter);
-              
-              btn.classList.add('playing');
-              sourceNode.onended = () => {
-                btn.classList.remove('playing');
-              };
-              sourceNode.start(0);
-            } catch (playErr) {
-              logConsole(`Err: Failed to play sample: ${playErr.message}`, 'err');
-            }
+            playTrackSampleEffect(trackNum, btnIdx, btn);
           } else {
             logConsole(`Info: Button ${btnIdx + 1} is empty. Drag & drop an audio file, right-click to set Hot Cue, or middle-click for settings.`, 'system');
           }
@@ -7684,8 +7811,10 @@ function setupUIListeners() {
           const track = tracks[trackNum];
           if (track.hotCues[btnIdx] !== null) {
             openCueSettings(trackNum, btnIdx);
+          } else if (track.soundButtons[btnIdx]?.buffer) {
+            stopTrackSampleEffect(trackNum, btnIdx, { logStop: true });
           } else {
-            logConsole(`Info: Button ${btnIdx + 1} is not a Cue. Middle-click settings are only for Cues.`, 'system');
+            logConsole(`Info: Button ${btnIdx + 1} is empty.`, 'system');
           }
         }
       });
@@ -11533,6 +11662,7 @@ function startUdpServer() {
 // -------------------------------------------------------------
 
 window.addEventListener('DOMContentLoaded', () => {
+  initializeEmptySoundButtonLabels();
   const appVersionLabel = document.getElementById('settings-app-version');
   if (appVersionLabel) {
     appVersionLabel.textContent = notoMixerConfig.version;
@@ -12133,6 +12263,69 @@ const previewSoundButtons = [
   { path: '', name: 'DROP FILE', buffer: null },
   { path: '', name: 'DROP FILE', buffer: null }
 ];
+const previewSampleModes = Array(8).fill('ontop');
+const previewActiveSampleSources = Array.from({ length: 8 }, () => new Set());
+
+function stopPreviewSampleEffect(buttonIndex, { logStop = false } = {}) {
+  const activeSources = previewActiveSampleSources[buttonIndex];
+  if (!activeSources) return false;
+  const hadActiveSources = activeSources.size > 0;
+  activeSources.forEach(sourceNode => {
+    try { sourceNode.stop(); } catch (error) {}
+    try { sourceNode.disconnect(); } catch (error) {}
+  });
+  activeSources.clear();
+  document.getElementById(`prev-sound-btn-${buttonIndex}`)
+    ?.classList.remove('playing');
+  if (hadActiveSources && logStop) {
+    logConsole(`Effect: Stopped Preview button ${buttonIndex + 1}`, 'system');
+  }
+  return hadActiveSources;
+}
+
+function playPreviewSampleEffect(buttonIndex, button) {
+  const soundData = previewSoundButtons[buttonIndex];
+  if (!soundData?.buffer) return false;
+  initPreviewAudio();
+  if (previewAudioCtx.state === 'suspended') previewAudioCtx.resume();
+  if (previewSampleModes[buttonIndex] === 'restart') {
+    stopPreviewSampleEffect(buttonIndex);
+  }
+
+  try {
+    const sourceNode = previewAudioCtx.createBufferSource();
+    const activeSources = previewActiveSampleSources[buttonIndex];
+    sourceNode.buffer = soundData.buffer;
+    sourceNode.connect(previewAudioCtx.destination);
+    activeSources.add(sourceNode);
+    button.classList.add('playing');
+    sourceNode.onended = () => {
+      activeSources.delete(sourceNode);
+      try { sourceNode.disconnect(); } catch (error) {}
+      if (activeSources.size === 0) button.classList.remove('playing');
+    };
+    sourceNode.start(0);
+    return true;
+  } catch (error) {
+    logConsole(`Err: Failed to play preview effect: ${error.message}`, 'err');
+    return false;
+  }
+}
+
+function clearPreviewSampleEffect(buttonIndex) {
+  stopPreviewSampleEffect(buttonIndex);
+  previewSampleModes[buttonIndex] = 'ontop';
+  previewSoundButtons[buttonIndex] = {
+    path: '',
+    name: 'DROP FILE',
+    buffer: null
+  };
+  const button = document.getElementById(`prev-sound-btn-${buttonIndex}`);
+  if (!button) return;
+  renderEmptySoundButtonLabel(button);
+  button.classList.remove('loaded', 'playing');
+  button.title = '';
+}
 
 function makeElementDraggable(el, header) {
   let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
@@ -13969,18 +14162,31 @@ function initInAppPreview() {
         
         if (e.dataTransfer.files.length > 0) {
           const file = e.dataTransfer.files[0];
-          const ext = path.extname(file.path).toLowerCase();
+          const filePath = getDroppedFilePath(file);
+          const fileName = file.name || path.basename(filePath);
+          if (!filePath) {
+            logConsole('Err: Unable to resolve the dropped preview audio file path', 'err');
+            return;
+          }
+          const ext = path.extname(filePath).toLowerCase();
           const audioExtensions = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a'];
           if (audioExtensions.includes(ext)) {
             try {
-              const arrayBuffer = fs.readFileSync(file.path).buffer;
+              const fileData = fs.readFileSync(filePath);
+              const arrayBuffer = fileData.buffer.slice(
+                fileData.byteOffset,
+                fileData.byteOffset + fileData.byteLength
+              );
               initPreviewAudio();
               previewAudioCtx.decodeAudioData(arrayBuffer, (audioBuffer) => {
+                stopPreviewSampleEffect(i);
                 previewSoundButtons[i].buffer = audioBuffer;
-                previewSoundButtons[i].path = file.path;
-                previewSoundButtons[i].name = file.name;
-                btn.textContent = file.name.toUpperCase();
+                previewSoundButtons[i].path = filePath;
+                previewSoundButtons[i].name = fileName;
+                btn.textContent = fileName.toUpperCase();
+                btn.classList.remove('empty-sound-btn');
                 btn.classList.add('loaded');
+                btn.title = `${filePath} — right-click for effect settings; middle-click to stop`;
               });
             } catch (err) {
               console.error(err);
@@ -13990,20 +14196,26 @@ function initInAppPreview() {
       });
       
       btn.addEventListener('click', () => {
+        playPreviewSampleEffect(i, btn);
+      });
+
+      btn.addEventListener('mousedown', event => {
+        if (event.button === 1) event.preventDefault();
+      });
+
+      btn.addEventListener('auxclick', event => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        if (previewSoundButtons[i].buffer) {
+          stopPreviewSampleEffect(i, { logStop: true });
+        }
+      });
+
+      btn.addEventListener('contextmenu', event => {
         if (!previewSoundButtons[i].buffer) return;
-        initPreviewAudio();
-        if (previewAudioCtx.state === 'suspended') previewAudioCtx.resume();
-        
-        const sourceNode = previewAudioCtx.createBufferSource();
-        sourceNode.buffer = previewSoundButtons[i].buffer;
-        
-        sourceNode.connect(previewAudioCtx.destination);
-        sourceNode.start(0);
-        
-        btn.classList.add('playing');
-        sourceNode.onended = () => {
-          btn.classList.remove('playing');
-        };
+        event.preventDefault();
+        event.stopPropagation();
+        openSampleSettings({ buttonIndex: i, preview: true });
       });
     }
   }
@@ -14500,6 +14712,88 @@ function setupPreviewCanvasScratching(canvas) {
   });
 }
 
+// Effect Settings Modal Logic
+let currentSampleSettingsTarget = null;
+
+function closeSampleSettings() {
+  document.getElementById('sample-settings-window')?.classList.remove('show');
+  currentSampleSettingsTarget = null;
+}
+
+function openSampleSettings({ trackNum = null, buttonIndex, preview = false }) {
+  if (!Number.isInteger(buttonIndex) || buttonIndex < 0 || buttonIndex > 7) return;
+  if (!preview && ![1, 2].includes(trackNum)) return;
+
+  const soundData = preview
+    ? previewSoundButtons[buttonIndex]
+    : tracks[trackNum].soundButtons[buttonIndex];
+  if (!soundData?.buffer) return;
+
+  currentSampleSettingsTarget = { trackNum, buttonIndex, preview };
+  const currentMode = preview
+    ? previewSampleModes[buttonIndex]
+    : tracks[trackNum].sampleModes[buttonIndex];
+  const title = document.getElementById('sample-settings-title');
+  const onTop = document.getElementById('sampleModeOnTop');
+  const restart = document.getElementById('sampleModeRestart');
+  if (title) {
+    title.textContent = preview
+      ? `PREVIEW - EFFECT ${buttonIndex + 1}`
+      : `TRACK ${trackNum} - EFFECT ${buttonIndex + 1}`;
+  }
+  if (onTop) onTop.checked = currentMode !== 'restart';
+  if (restart) restart.checked = currentMode === 'restart';
+  document.getElementById('sample-settings-window')?.classList.add('show');
+}
+
+setTimeout(() => {
+  const settingsWindow = document.getElementById('sample-settings-window');
+  const settingsHeader = document.getElementById('sample-settings-header');
+  if (settingsWindow && settingsHeader && typeof makeElementDraggable === 'function') {
+    makeElementDraggable(settingsWindow, settingsHeader);
+  }
+}, 500);
+
+document.getElementById('btn-close-sample-settings')
+  ?.addEventListener('click', closeSampleSettings);
+document.getElementById('btn-close-sample-settings-x')
+  ?.addEventListener('click', closeSampleSettings);
+
+document.getElementById('btn-save-sample-settings')
+  ?.addEventListener('click', () => {
+    if (!currentSampleSettingsTarget) return;
+    const { trackNum, buttonIndex, preview } = currentSampleSettingsTarget;
+    const mode = document.getElementById('sampleModeRestart')?.checked
+      ? 'restart'
+      : 'ontop';
+    if (preview) {
+      previewSampleModes[buttonIndex] = mode;
+    } else {
+      tracks[trackNum].sampleModes[buttonIndex] = mode;
+    }
+    logConsole(
+      `Effect: ${preview ? 'Preview' : `Track ${trackNum}`} button ${buttonIndex + 1} set to ${mode === 'restart' ? 'RESTART' : 'PLAY ON TOP'}`,
+      'system'
+    );
+    closeSampleSettings();
+  });
+
+document.getElementById('btn-remove-sample-settings')
+  ?.addEventListener('click', () => {
+    if (!currentSampleSettingsTarget) return;
+    const { trackNum, buttonIndex, preview } = currentSampleSettingsTarget;
+    if (preview) {
+      clearPreviewSampleEffect(buttonIndex);
+    } else {
+      clearTrackSampleEffect(trackNum, buttonIndex);
+    }
+    logConsole(
+      `Effect: Removed ${preview ? 'Preview' : `Track ${trackNum}`} button ${buttonIndex + 1}`,
+      'system'
+    );
+    closeSampleSettings();
+  });
+
 // Cue Settings Modal Logic
 let currentCueSettingsTrack = null;
 let currentCueSettingsBtnIdx = null;
@@ -14563,7 +14857,7 @@ if (btnRemoveCue) {
       
       const btn = document.getElementById(`sound-btn-${currentCueSettingsTrack}-${currentCueSettingsBtnIdx}`);
       if (btn) {
-        btn.textContent = 'DROP FILE';
+        renderEmptySoundButtonLabel(btn);
         btn.classList.remove('loaded');
         btn.classList.remove('cue-draggable');
         btn.draggable = false;

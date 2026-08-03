@@ -1444,7 +1444,7 @@ body.app-daemon-locked > .in-app-window {
   width: 100%;
   aspect-ratio: 1 / 1;
   margin-top: auto;
-  padding: 4px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2955,6 +2955,39 @@ body.app-daemon-locked > .in-app-window {
   user-select: none;
 }
 
+.sound-btn.empty-sound-btn {
+  flex-direction: column;
+  gap: 6px;
+  white-space: normal;
+}
+
+.sound-btn-empty-primary,
+.sound-btn-empty-secondary {
+  display: block;
+  line-height: 1;
+}
+
+.sound-btn-empty-primary {
+  color: #b6b6b6;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.sound-btn-empty-divider {
+  display: block;
+  width: min(58px, 72%);
+  height: 1px;
+  flex: 0 0 1px;
+  background: #494949;
+}
+
+.sound-btn-empty-secondary {
+  color: #777;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+}
+
 .sound-btn.cue-draggable {
   cursor: grab;
   flex-direction: column;
@@ -3003,6 +3036,68 @@ body.app-daemon-locked > .in-app-window {
   border-color: #ffffff !important;
   color: #ffffff !important;
   box-shadow: 0 0 6px var(--exertia-accent);
+}
+
+.sample-settings-body {
+  display: flex;
+  height: calc(100% - 30px);
+  flex-direction: column;
+  padding: 14px 15px;
+}
+
+.sample-settings-options {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+}
+
+.sample-settings-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.sample-settings-options input {
+  margin-top: 2px;
+  accent-color: var(--exertia-accent);
+}
+
+.sample-settings-options label span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sample-settings-options strong {
+  font-size: 11px;
+  letter-spacing: 0.4px;
+}
+
+.sample-settings-options small,
+.sample-settings-options p {
+  color: #999;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.sample-settings-options p {
+  margin: 0;
+}
+
+.sample-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.sample-settings-remove {
+  margin-right: auto;
+  color: #ff5555;
+  border-color: #ff5555;
 }
 
 .macro-buttons-grid {

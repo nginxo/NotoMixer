@@ -1753,6 +1753,31 @@
     </div>
   </div>
 
+  <div id="sample-settings-window" class="in-app-window" style="width: 350px; height: 235px; min-width: 320px; min-height: 220px; left: 42%; top: 42%; z-index: 2001;">
+    <div class="in-app-window-header" id="sample-settings-header">
+      <span class="in-app-window-title" id="sample-settings-title">EFFECT SETTINGS</span>
+      <button id="btn-close-sample-settings-x" class="in-app-window-close">&times;</button>
+    </div>
+    <div class="in-app-window-body sample-settings-body">
+      <div class="sample-settings-options">
+        <label>
+          <input type="radio" name="sampleMode" value="ontop" id="sampleModeOnTop" checked>
+          <span><strong>PLAY ON TOP</strong><small>Start another instance without stopping the previous one.</small></span>
+        </label>
+        <label>
+          <input type="radio" name="sampleMode" value="restart" id="sampleModeRestart">
+          <span><strong>RESTART</strong><small>Stop this effect and restart it from the beginning.</small></span>
+        </label>
+        <p>Middle-click the effect button to stop every active instance.</p>
+      </div>
+      <div class="cue-settings-actions sample-settings-actions">
+        <button id="btn-remove-sample-settings" class="exertia-btn-modal sample-settings-remove">REMOVE</button>
+        <button id="btn-close-sample-settings" class="exertia-btn-modal">CANCEL</button>
+        <button id="btn-save-sample-settings" class="exertia-btn-modal btn-orange">SAVE</button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 </html>

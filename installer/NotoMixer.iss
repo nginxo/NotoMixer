@@ -16,6 +16,7 @@ AppVersion={#AppVersion}
 AppVerName={#MyAppName} {#AppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=Copyright (C) 2026 {#MyAppPublisher}
+LicenseFile=..\LICENSE
 DefaultDirName={localappdata}\Programs\exertia\NotoMixer
 DefaultGroupName=NotoMixer
 DisableProgramGroupPage=yes
@@ -67,6 +68,7 @@ Name: "desktopicon"; Description: "Crea un collegamento sul &desktop"; GroupDesc
 [Files]
 Source: "..\dist\launcher\NotoMixer.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\app\NotoMixer-win32-x64\*"; DestDir: "{app}\reserved"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\config.notomixer"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs
 Source: "..\logo.svg"; DestDir: "{app}\assets"; DestName: "logo.svg"; Flags: onlyifdoesntexist
