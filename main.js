@@ -41,6 +41,7 @@ let tabletControllerState = {
   type: 'state',
   libraryAnalysis: {
     inProgress: true,
+    blocking: false,
     total: 0,
     completed: 0,
     failed: 0,
@@ -287,6 +288,7 @@ function sanitizeTabletControllerState(nextState) {
   const requestedAnalysisFailed = Number(nextState?.libraryAnalysis?.failed);
   const libraryAnalysis = {
     inProgress: nextState?.libraryAnalysis?.inProgress === true,
+    blocking: nextState?.libraryAnalysis?.blocking === true,
     current: typeof nextState?.libraryAnalysis?.current === 'string'
       ? nextState.libraryAnalysis.current.slice(0, 300)
       : '',
@@ -394,7 +396,7 @@ function notifyTabletConnectionCount() {
 function forwardTabletControllerInput(payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (
-    tabletControllerState.libraryAnalysis?.inProgress === true
+    tabletControllerState.libraryAnalysis?.blocking === true
     && payload.type !== 'jogEnd'
   ) {
     return;

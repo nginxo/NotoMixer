@@ -2583,6 +2583,7 @@ function buildTabletControllerState() {
     },
     libraryAnalysis: {
       inProgress: analysisInProgress,
+      blocking: false,
       total: Number(songAnalyzerUiState.total) || 0,
       completed: Number(songAnalyzerUiState.completed) || 0,
       failed: Number(songAnalyzerUiState.failed) || 0,
@@ -2854,6 +2855,10 @@ function setupTabletControllerExtension() {
     } else if (payload?.type === 'transport') {
       const trackNum = Number(payload.trackNum);
       if (trackNum !== 1 && trackNum !== 2) return;
+      // A transport command always wins over an active jog or its inertia.
+      // Cancel it before deciding whether PLAY means play or pause so no
+      // scratch source or animation frame can outlive the command.
+      endTrackScratch(trackNum, { fadeSeconds: 0, allowInertia: false });
       if (payload.action === 'playPause') {
         togglePlayTrack(trackNum);
       } else if (payload.action === 'stop') {
@@ -6770,17 +6775,11 @@ async function persistTappedBpmToSong(songPath, baseBpm, sourceLabel) {
 
   const normalizedBpm = Math.round(baseBpm * 100) / 100;
   const analysisKey = getSongAnalysisKey(mainAudioPath);
-  const cacheKey = `notoMixer_meta8_${mainAudioPath}`;
-  let cached = null;
-  const cachedData = localStorage.getItem(cacheKey);
-
-  if (cachedData) {
-    try {
-      cached = JSON.parse(cachedData);
-    } catch (error) {
-      console.warn(`Tap BPM: Invalid cache for ${mainAudioPath}`, error);
-    }
-  }
+  const fileManifest = buildPortableAudioManifest(audioFiles);
+  const portableRecord = getPortableSongAnalysisRecord(songPath);
+  let cached = portableRecord
+    ? hydratePortableSongAnalysis(portableRecord, songPath, mainAudioPath)
+    : null;
 
   const verified = verifiedSongAnalysis.get(analysisKey);
   if (!cached && verified) {
@@ -6818,6 +6817,7 @@ async function persistTappedBpmToSong(songPath, baseBpm, sourceLabel) {
       songPath,
       mainAudioPath,
       bpm: normalizedBpm,
+      key: '--',
       duration,
       offset: 0,
       peaks: downsampleWaveformPeaks(waveformPeaks, 60),
@@ -6832,7 +6832,7 @@ async function persistTappedBpmToSong(songPath, baseBpm, sourceLabel) {
   cached.bpm = normalizedBpm;
   cached.bpmManuallySet = true;
   cached.bpmUpdatedAt = Date.now();
-  localStorage.setItem(cacheKey, JSON.stringify(cached));
+  storePortableSongAnalysis(songPath, cached, fileManifest);
 
   if (verified) {
     verified.bpm = normalizedBpm;
@@ -8651,6 +8651,8 @@ let currentSearchQuery = '';
 let currentPlaylistFilter = '';
 let songAnalyzerQueue = Promise.resolve();
 let songAnalyzerGeneration = 0;
+let portableSongAnalysisCache = null;
+let portableSongAnalysisCacheRoot = '';
 const verifiedSongAnalysis = new Map();
 let songAnalyzerUiState = {
   generation: 0,
@@ -8676,15 +8678,11 @@ function beginSongAnalyzerDaemon(total, generation) {
     startedAt: Date.now()
   };
 
-  document.body.classList.add('app-daemon-locked');
   const overlay = document.getElementById('song-analyzer-daemon');
   if (overlay) {
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden', 'false');
   }
-  setSongAnalyzerUiText('song-analyzer-status', 'Preparing tracks');
-  setSongAnalyzerUiText('song-analyzer-current', total === 1 ? '1 song queued' : `${total} songs queued`);
-  setSongAnalyzerUiText('song-analyzer-count', `0 / ${total}`);
   setSongAnalyzerUiText('song-analyzer-percent', '0%');
 
   const progress = document.getElementById('song-analyzer-progress');
@@ -8697,8 +8695,6 @@ function beginSongAnalyzerDaemon(total, generation) {
 function setSongAnalyzerActiveSong(generation, songName) {
   if (generation !== songAnalyzerUiState.generation) return;
   songAnalyzerUiState.current = songName;
-  setSongAnalyzerUiText('song-analyzer-status', 'Preparing tracks');
-  setSongAnalyzerUiText('song-analyzer-current', songName);
   publishTabletControllerState(true);
 }
 
@@ -8710,8 +8706,6 @@ function settleSongAnalyzerItem(generation, songName, failed = false) {
 
   const { completed, total } = songAnalyzerUiState;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 100;
-  setSongAnalyzerUiText('song-analyzer-current', failed ? `${songName} — analysis failed` : `${songName} — ready`);
-  setSongAnalyzerUiText('song-analyzer-count', `${completed} / ${total}`);
   setSongAnalyzerUiText('song-analyzer-percent', `${percentage}%`);
 
   const progress = document.getElementById('song-analyzer-progress');
@@ -8727,18 +8721,8 @@ function closeSongAnalyzerDaemon(generation, failed = 0, immediate = false) {
   const elapsed = Date.now() - songAnalyzerUiState.startedAt;
   const finishDelay = immediate ? 0 : Math.max(260, 600 - elapsed);
 
-  setSongAnalyzerUiText(
-    'song-analyzer-status',
-    failed > 0 ? `Library ready with ${failed} analysis ${failed === 1 ? 'error' : 'errors'}` : 'Music library ready'
-  );
-  setSongAnalyzerUiText(
-    'song-analyzer-current',
-    failed > 0 ? 'Failed songs remain available and can be rescanned later' : 'BPM, key and waveform cache verified'
-  );
-
   window.setTimeout(() => {
     if (generation !== songAnalyzerUiState.generation) return;
-    document.body.classList.remove('app-daemon-locked');
     if (overlay) {
       overlay.classList.remove('show');
       overlay.setAttribute('aria-hidden', 'true');
@@ -8808,6 +8792,7 @@ function discoverSongLibrary() {
   const playlists = [];
 
   entries.forEach(entry => {
+    if (entry.name.toLowerCase() === '.notomixer') return;
     const entryPath = path.join(workingDir, entry.name);
     if (entry.isFile()) {
       if (SONG_AUDIO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
@@ -9155,6 +9140,7 @@ function scanWorkingDirectory() {
   }
   workingDirectoryAvailable = true;
   renderMediaSupportAvailability(false);
+  loadPortableSongAnalysisCache();
 
   try {
     const { songs: songItems, playlists } = discoverSongLibrary();
@@ -9176,6 +9162,13 @@ function scanWorkingDirectory() {
     }
 
     beginSongAnalyzerDaemon(songItems.length, analyzerGeneration);
+
+    const emptyPlaceholder = document.createElement('li');
+    emptyPlaceholder.id = 'song-filter-empty';
+    emptyPlaceholder.className = 'song-list-placeholder';
+    emptyPlaceholder.textContent =
+      'Verified songs will appear here as they become available';
+    songsList.appendChild(emptyPlaceholder);
 
     songItems.forEach(songItem => {
       const songPath = path.join(workingDir, songItem.relativePath);
@@ -9281,35 +9274,42 @@ function scanWorkingDirectory() {
         }
       });
 
-      songsList.appendChild(li);
-
-      // Queue metadata analysis in the background daemon.
+      // Queue verification and reveal this row only when the song is usable.
+      const analysisJob = loadSongMetadata(
+        songPath,
+        keySpan,
+        bpmSpan,
+        durSpan,
+        waveCanvas,
+        artImg,
+        analyzerGeneration
+      );
+      const revealSong = () => {
+        if (analyzerGeneration !== songAnalyzerGeneration) return;
+        songsList.insertBefore(li, emptyPlaceholder);
+        updateBpmCompatIndicators();
+        publishTabletSongLibrary();
+      };
       analysisJobs.push(
-        loadSongMetadata(
-          songPath,
-          keySpan,
-          bpmSpan,
-          durSpan,
-          waveCanvas,
-          artImg,
-          analyzerGeneration
+        analysisJob.then(
+          result => {
+            revealSong();
+            return result;
+          },
+          error => {
+            revealSong();
+            throw error;
+          }
         )
       );
     });
-
-    const emptyPlaceholder = document.createElement('li');
-    emptyPlaceholder.id = 'song-filter-empty';
-    emptyPlaceholder.className = 'song-list-placeholder';
-    emptyPlaceholder.hidden = true;
-    songsList.appendChild(emptyPlaceholder);
-    applySongListFilters();
     publishTabletSongLibrary();
 
     logConsole(
       `Explorer: Found ${songItems.length} songs in ${playlists.length} playlists/folders in ${workingDir}`,
       'system'
     );
-    logConsole(`NotoMixer Song Analyzer Daemon: checking ${songItems.length} song MD5 hashes`, 'system');
+    logConsole(`NotoMixer Song Analyzer Daemon: checking ${songItems.length} USB manifests and MD5 hashes`, 'system');
     Promise.allSettled(analysisJobs).then(results => {
       if (analyzerGeneration !== songAnalyzerGeneration) return;
       const failed = results.filter(result => result.status === 'rejected').length;
@@ -9372,6 +9372,217 @@ function drawSongMiniWaveform(waveCanvas, peaks) {
 
 const SONG_ANALYSIS_CACHE_VERSION = 2;
 const SONG_AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a']);
+const PORTABLE_SONG_CACHE_FORMAT = 'notomixer-portable-analysis';
+const PORTABLE_SONG_CACHE_VERSION = 1;
+const PORTABLE_SONG_CACHE_DIR = '.notomixer';
+const PORTABLE_SONG_CACHE_FILE = 'library-cache-v1.json';
+
+function createEmptyPortableSongAnalysisCache() {
+  return {
+    format: PORTABLE_SONG_CACHE_FORMAT,
+    version: PORTABLE_SONG_CACHE_VERSION,
+    analyzerVersion: SONG_ANALYSIS_CACHE_VERSION,
+    updatedAt: Date.now(),
+    songs: {}
+  };
+}
+
+function getPortableSongCachePaths(rootPath = workingDir) {
+  const cacheDirectory = path.join(rootPath, PORTABLE_SONG_CACHE_DIR);
+  const cacheFile = path.join(cacheDirectory, PORTABLE_SONG_CACHE_FILE);
+  return {
+    cacheDirectory,
+    cacheFile,
+    backupFile: `${cacheFile}.bak`,
+    artworkDirectory: path.join(cacheDirectory, 'artwork')
+  };
+}
+
+function normalizePortableRelativePath(filePath) {
+  if (!workingDir || !filePath) return '';
+  const relativePath = path.relative(path.resolve(workingDir), path.resolve(filePath));
+  if (
+    !relativePath ||
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath)
+  ) {
+    return '';
+  }
+  return relativePath.split(path.sep).join('/');
+}
+
+function resolvePortableRelativePath(relativePath) {
+  if (!workingDir || typeof relativePath !== 'string' || !relativePath) return '';
+  const normalized = relativePath.replace(/\//g, path.sep);
+  const resolved = path.resolve(workingDir, normalized);
+  const relativeCheck = path.relative(path.resolve(workingDir), resolved);
+  if (relativeCheck.startsWith('..') || path.isAbsolute(relativeCheck)) return '';
+  return resolved;
+}
+
+function getPortableSongCacheKey(songPath) {
+  const relativePath = normalizePortableRelativePath(songPath);
+  return relativePath ? `song:${relativePath}` : '';
+}
+
+function isPortableSongCacheDocument(value) {
+  return Boolean(
+    value &&
+    value.format === PORTABLE_SONG_CACHE_FORMAT &&
+    value.version === PORTABLE_SONG_CACHE_VERSION &&
+    value.analyzerVersion === SONG_ANALYSIS_CACHE_VERSION &&
+    value.songs &&
+    typeof value.songs === 'object' &&
+    !Array.isArray(value.songs)
+  );
+}
+
+function loadPortableSongAnalysisCache() {
+  portableSongAnalysisCacheRoot = workingDir ? path.resolve(workingDir) : '';
+  portableSongAnalysisCache = createEmptyPortableSongAnalysisCache();
+  verifiedSongAnalysis.clear();
+  if (!portableSongAnalysisCacheRoot) return portableSongAnalysisCache;
+
+  const { cacheFile, backupFile } = getPortableSongCachePaths(
+    portableSongAnalysisCacheRoot
+  );
+  for (const candidatePath of [cacheFile, backupFile]) {
+    if (!fs.existsSync(candidatePath)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
+      if (!isPortableSongCacheDocument(parsed)) {
+        throw new Error('unsupported or invalid cache format');
+      }
+      portableSongAnalysisCache = parsed;
+      logConsole(
+        `NotoMixer Song Analyzer Daemon: portable USB cache loaded (${Object.keys(parsed.songs).length} songs)`,
+        'system'
+      );
+      return portableSongAnalysisCache;
+    } catch (error) {
+      console.warn(`Unable to read portable song cache ${candidatePath}:`, error);
+    }
+  }
+  return portableSongAnalysisCache;
+}
+
+function persistPortableSongAnalysisCache() {
+  if (
+    !portableSongAnalysisCacheRoot ||
+    path.resolve(workingDir || '') !== portableSongAnalysisCacheRoot ||
+    !portableSongAnalysisCache
+  ) {
+    return false;
+  }
+
+  const { cacheDirectory, cacheFile, backupFile } = getPortableSongCachePaths(
+    portableSongAnalysisCacheRoot
+  );
+  const temporaryFile = `${cacheFile}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.mkdirSync(cacheDirectory, { recursive: true });
+    portableSongAnalysisCache.updatedAt = Date.now();
+    fs.writeFileSync(
+      temporaryFile,
+      JSON.stringify(portableSongAnalysisCache),
+      'utf8'
+    );
+    if (fs.existsSync(cacheFile)) {
+      try {
+        fs.copyFileSync(cacheFile, backupFile);
+      } catch (error) {}
+      fs.copyFileSync(temporaryFile, cacheFile);
+      fs.unlinkSync(temporaryFile);
+    } else {
+      fs.renameSync(temporaryFile, cacheFile);
+    }
+    return true;
+  } catch (error) {
+    try {
+      if (fs.existsSync(temporaryFile)) fs.unlinkSync(temporaryFile);
+    } catch (cleanupError) {}
+    logConsole(
+      `NotoMixer Song Analyzer Daemon: USB cache write failed (${error.message})`,
+      'err'
+    );
+    return false;
+  }
+}
+
+function buildPortableAudioManifest(audioFiles) {
+  return audioFiles.map(filePath => {
+    const stats = fs.statSync(filePath);
+    return {
+      path: normalizePortableRelativePath(filePath),
+      size: stats.size,
+      mtimeMs: Math.round(stats.mtimeMs)
+    };
+  });
+}
+
+function portableAudioManifestsMatch(cachedManifest, currentManifest) {
+  if (
+    !Array.isArray(cachedManifest) ||
+    cachedManifest.length !== currentManifest.length
+  ) {
+    return false;
+  }
+  return currentManifest.every((file, index) => {
+    const cached = cachedManifest[index];
+    return cached &&
+      cached.path === file.path &&
+      cached.size === file.size &&
+      cached.mtimeMs === file.mtimeMs;
+  });
+}
+
+function hydratePortableSongAnalysis(record, songPath, mainAudioPath) {
+  const cover = resolvePortableRelativePath(record.coverPath);
+  return {
+    ...record,
+    songPath,
+    mainAudioPath,
+    cover: cover && fs.existsSync(cover) ? cover : '',
+    waveformPeaks: decodeWaveformPeaks(record.waveformData)
+  };
+}
+
+function getPortableSongAnalysisRecord(songPath) {
+  if (!portableSongAnalysisCache) return null;
+  const cacheKey = getPortableSongCacheKey(songPath);
+  return cacheKey ? portableSongAnalysisCache.songs[cacheKey] || null : null;
+}
+
+function storePortableSongAnalysis(songPath, meta, fileManifest) {
+  if (!portableSongAnalysisCache) {
+    portableSongAnalysisCache = createEmptyPortableSongAnalysisCache();
+    portableSongAnalysisCacheRoot = workingDir ? path.resolve(workingDir) : '';
+  }
+  const cacheKey = getPortableSongCacheKey(songPath);
+  if (!cacheKey) return false;
+
+  const waveformData = typeof meta.waveformData === 'string'
+    ? meta.waveformData
+    : encodeWaveformPeaks(meta.waveformPeaks || []);
+  portableSongAnalysisCache.songs[cacheKey] = {
+    cacheVersion: SONG_ANALYSIS_CACHE_VERSION,
+    md5: meta.md5,
+    bpm: meta.bpm,
+    key: typeof meta.key === 'string' ? meta.key : '--',
+    duration: meta.duration,
+    offset: meta.offset || 0,
+    peaks: Array.isArray(meta.peaks) ? meta.peaks : [],
+    waveformData,
+    silenceStart: meta.silenceStart || 0,
+    silenceEnd: meta.silenceEnd,
+    coverPath: normalizePortableRelativePath(meta.cover),
+    analyzedAt: meta.analyzedAt || Date.now(),
+    bpmManuallySet: meta.bpmManuallySet === true,
+    bpmUpdatedAt: meta.bpmUpdatedAt || 0,
+    files: fileManifest
+  };
+  return persistPortableSongAnalysisCache();
+}
 
 function getSongAnalysisKey(filePath) {
   const resolved = path.resolve(filePath);
@@ -9495,10 +9706,13 @@ async function findSongCover(songPath, mainAudioPath, isFile) {
     if (!metadata.common.picture || metadata.common.picture.length === 0) return '';
 
     const picture = metadata.common.picture[0];
-    const cacheDir = path.join(notoMixerRoot, 'settings', '.cover_cache');
-    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-    const safeName = crypto.createHash('md5').update(mainAudioPath).digest('hex') + '.jpg';
-    const cachedCoverPath = path.join(cacheDir, safeName);
+    const { artworkDirectory } = getPortableSongCachePaths();
+    if (!fs.existsSync(artworkDirectory)) {
+      fs.mkdirSync(artworkDirectory, { recursive: true });
+    }
+    const portableIdentity = normalizePortableRelativePath(mainAudioPath);
+    const safeName = crypto.createHash('md5').update(portableIdentity).digest('hex') + '.jpg';
+    const cachedCoverPath = path.join(artworkDirectory, safeName);
     fs.writeFileSync(cachedCoverPath, picture.data);
     return cachedCoverPath;
   } catch (error) {
@@ -9508,7 +9722,7 @@ async function findSongCover(songPath, mainAudioPath, isFile) {
 }
 
 function applySongAnalysisToExplorer(meta, keyElement, bpmElement, durElement, waveCanvas, artImg, generation) {
-  if (generation !== songAnalyzerGeneration || !bpmElement || !bpmElement.isConnected) return;
+  if (generation !== songAnalyzerGeneration || !bpmElement) return;
   if (keyElement) keyElement.textContent = meta.key || '--';
   bpmElement.textContent = `${meta.bpm} BPM`;
   durElement.textContent = formatTime(meta.duration);
@@ -9555,10 +9769,18 @@ function hydrateLoadedTracksFromAnalysis(meta) {
   });
 }
 
-async function analyzeSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanvas, artImg, generation) {
+async function analyzeSongMetadata(
+  songPath,
+  keyElement,
+  bpmElement,
+  durElement,
+  waveCanvas,
+  artImg,
+  generation
+) {
   const { isFile, mainAudioPath, audioFiles } = resolveSongAnalysisFiles(songPath);
   if (!mainAudioPath || audioFiles.length === 0) {
-    if (generation === songAnalyzerGeneration && bpmElement && bpmElement.isConnected) {
+    if (generation === songAnalyzerGeneration && bpmElement) {
       bpmElement.textContent = 'NO AUDIO';
       if (keyElement) keyElement.textContent = '--';
       durElement.textContent = '--:--';
@@ -9566,35 +9788,51 @@ async function analyzeSongMetadata(songPath, keyElement, bpmElement, durElement,
     return null;
   }
 
+  const fileManifest = buildPortableAudioManifest(audioFiles);
+  const cachedRecord = getPortableSongAnalysisRecord(songPath);
+  const validCachedRecord = Boolean(
+    cachedRecord &&
+    cachedRecord.cacheVersion === SONG_ANALYSIS_CACHE_VERSION &&
+    typeof cachedRecord.md5 === 'string' &&
+    typeof cachedRecord.key === 'string' &&
+    typeof cachedRecord.waveformData === 'string'
+  );
+  const manifestMatches = validCachedRecord && portableAudioManifestsMatch(
+    cachedRecord.files,
+    fileManifest
+  );
+
   const md5 = await calculateSongMd5(audioFiles);
-  const cacheKey = `notoMixer_meta8_${mainAudioPath}`;
-  const cachedData = localStorage.getItem(cacheKey);
-  if (cachedData) {
-    try {
-      const cached = JSON.parse(cachedData);
-        if (cached.cacheVersion === SONG_ANALYSIS_CACHE_VERSION
-          && cached.md5 === md5
-          && typeof cached.key === 'string'
-          && typeof cached.waveformData === 'string') {
-        cached.songPath = songPath;
-        cached.mainAudioPath = mainAudioPath;
-        cached.waveformPeaks = decodeWaveformPeaks(cached.waveformData);
-        verifiedSongAnalysis.set(getSongAnalysisKey(mainAudioPath), cached);
-        applySongAnalysisToExplorer(cached, keyElement, bpmElement, durElement, waveCanvas, artImg, generation);
-        hydrateLoadedTracksFromAnalysis(cached);
-        logConsole(
-          `NotoMixer Song Analyzer Daemon: MD5 unchanged, reused ${path.basename(songPath)}`,
-          'system'
-        );
-        return cached;
-      }
-    } catch (error) {
-      console.warn(`Invalid song analysis cache for ${mainAudioPath}:`, error);
+  if (validCachedRecord && cachedRecord.md5 === md5) {
+    const cached = hydratePortableSongAnalysis(
+      cachedRecord,
+      songPath,
+      mainAudioPath
+    );
+    if (!manifestMatches) {
+      cached.files = fileManifest;
+      storePortableSongAnalysis(songPath, cached, fileManifest);
     }
+    verifiedSongAnalysis.set(getSongAnalysisKey(mainAudioPath), cached);
+    applySongAnalysisToExplorer(
+      cached,
+      keyElement,
+      bpmElement,
+      durElement,
+      waveCanvas,
+      artImg,
+      generation
+    );
+    hydrateLoadedTracksFromAnalysis(cached);
+    logConsole(
+      `NotoMixer Song Analyzer Daemon: MD5 verified, reused ${path.basename(songPath)}`,
+      'system'
+    );
+    return cached;
   }
 
   logConsole(
-    `NotoMixer Song Analyzer Daemon: ${cachedData ? 'MD5 changed' : 'new song'}, analyzing ${path.basename(songPath)}`,
+    `NotoMixer Song Analyzer Daemon: ${cachedRecord ? 'MD5 changed' : 'new song'}, analyzing ${path.basename(songPath)}`,
     'system'
   );
   initPreviewAudio();
@@ -9637,7 +9875,7 @@ async function analyzeSongMetadata(songPath, keyElement, bpmElement, durElement,
   };
   const cacheMeta = { ...meta, waveformData: encodeWaveformPeaks(waveformPeaks) };
   delete cacheMeta.waveformPeaks;
-  localStorage.setItem(cacheKey, JSON.stringify(cacheMeta));
+  storePortableSongAnalysis(songPath, cacheMeta, fileManifest);
   verifiedSongAnalysis.set(getSongAnalysisKey(mainAudioPath), meta);
   applySongAnalysisToExplorer(meta, keyElement, bpmElement, durElement, waveCanvas, artImg, generation);
   hydrateLoadedTracksFromAnalysis(meta);
@@ -9669,7 +9907,7 @@ function loadSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanv
     })
     .catch(error => {
       console.error(`NotoMixer Song Analyzer Daemon failed for ${songPath}:`, error);
-      if (generation === songAnalyzerGeneration && bpmElement && bpmElement.isConnected) {
+      if (generation === songAnalyzerGeneration && bpmElement) {
         bpmElement.textContent = 'ERR';
         if (keyElement) keyElement.textContent = '--';
       }

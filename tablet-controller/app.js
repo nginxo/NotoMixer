@@ -42,9 +42,10 @@ function createCueButtons(trackNum) {
     button.dataset.index = String(index);
     button.innerHTML = '<strong>EMPTY</strong><span>NOT ASSIGNED</span>';
     button.disabled = true;
+    const activePointers = new Set();
 
     const sendCue = pressed => {
-      if (button.disabled) return;
+      if (pressed && button.disabled) return;
       sendMessage({
         type: 'cue',
         trackNum,
@@ -54,19 +55,58 @@ function createCueButtons(trackNum) {
       button.classList.toggle('pressed', pressed);
     };
 
+    const releaseCuePointer = event => {
+      if (!activePointers.delete(event.pointerId)) return;
+      if (activePointers.size === 0) sendCue(false);
+    };
+
     button.addEventListener('pointerdown', event => {
       event.preventDefault();
-      button.setPointerCapture(event.pointerId);
-      sendCue(true);
+      if (event.button !== 0) return;
+      if (activePointers.has(event.pointerId)) return;
+      activePointers.add(event.pointerId);
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch (error) {}
+      if (activePointers.size === 1) sendCue(true);
     });
     button.addEventListener('pointerup', event => {
       event.preventDefault();
-      sendCue(false);
+      releaseCuePointer(event);
     });
-    button.addEventListener('pointercancel', () => sendCue(false));
+    button.addEventListener('pointercancel', releaseCuePointer);
+    button.addEventListener('lostpointercapture', releaseCuePointer);
+    button.addEventListener('pointerleave', releaseCuePointer);
     button.addEventListener('contextmenu', event => event.preventDefault());
     grid.appendChild(button);
   }
+}
+
+function cancelLocalJog(trackNum) {
+  const view = trackViews.get(trackNum);
+  if (!view) return;
+
+  const wasDragging = view.dragging;
+  const pointerId = view.pointerId;
+  view.dragging = false;
+  view.pointerId = null;
+  view.scratching = false;
+  view.coasting = false;
+  view.angularVelocity = 0;
+  view.jogVelocity = 0;
+  view.receivedAt = performance.now();
+  view.shell.classList.remove('grabbed', 'coasting');
+
+  if (
+    pointerId !== null &&
+    typeof view.shell.hasPointerCapture === 'function' &&
+    view.shell.hasPointerCapture(pointerId)
+  ) {
+    try {
+      view.shell.releasePointerCapture(pointerId);
+    } catch (error) {}
+  }
+  if (wasDragging) sendMessage({ type: 'jogEnd', trackNum });
 }
 
 function setupTransportButtons(trackNum) {
@@ -83,16 +123,44 @@ function setupTransportButtons(trackNum) {
 
   bindings.forEach(({ button, action }) => {
     if (!button) return;
-    button.addEventListener('click', () => {
+    const activePointers = new Set();
+    let lastPointerActivationAt = Number.NEGATIVE_INFINITY;
+
+    button.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      if (event.button !== 0) return;
+      if (activePointers.has(event.pointerId)) return;
+      activePointers.add(event.pointerId);
+      lastPointerActivationAt = performance.now();
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch (error) {}
+      button.classList.add('pressed');
+      cancelLocalJog(trackNum);
       sendMessage({ type: 'transport', trackNum, action });
     });
-    button.addEventListener('pointerdown', () => {
-      button.classList.add('pressed');
+
+    const releaseTransportPointer = event => {
+      if (!activePointers.delete(event.pointerId)) return;
+      if (activePointers.size === 0) button.classList.remove('pressed');
+    };
+    [
+      'pointerup',
+      'pointercancel',
+      'lostpointercapture',
+      'pointerleave'
+    ].forEach(eventName => {
+      button.addEventListener(eventName, releaseTransportPointer);
     });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(eventName => {
-      button.addEventListener(eventName, () => {
-        button.classList.remove('pressed');
-      });
+    button.addEventListener('click', event => {
+      // Browsers synthesize click after touch/pointer activation. The action
+      // was already sent on pointerdown; only accept standalone keyboard clicks.
+      if (performance.now() - lastPointerActivationAt < 750) {
+        event.preventDefault();
+        return;
+      }
+      cancelLocalJog(trackNum);
+      sendMessage({ type: 'transport', trackNum, action });
     });
     button.addEventListener('contextmenu', event => event.preventDefault());
   });
@@ -610,10 +678,11 @@ function renderLibraryAnalysis(analysis) {
   if (!overlay || !progress || !fill || !count || !percent || !current) return;
 
   const inProgress = analysis?.inProgress === true;
+  const blocking = inProgress && analysis?.blocking === true;
   const wasVisible = !overlay.hidden;
-  overlay.hidden = !inProgress;
-  overlay.setAttribute('aria-hidden', inProgress ? 'false' : 'true');
-  if (!inProgress) return;
+  overlay.hidden = !blocking;
+  overlay.setAttribute('aria-hidden', blocking ? 'false' : 'true');
+  if (!blocking) return;
 
   if (!wasVisible) {
     closeSongSelector();

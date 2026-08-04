@@ -324,6 +324,37 @@ body.app-daemon-locked > .in-app-window {
   font-weight: 700;
 }
 
+.library-analysis-inline {
+  display: flex;
+  min-width: 112px;
+  height: 18px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-family: "Courier Prime", monospace;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.library-analysis-inline:not(.show) {
+  display: none;
+}
+
+.song-analyzer-progress.library-analysis-progress {
+  width: 80px;
+  height: 8px;
+  flex: 0 0 80px;
+}
+
+.library-analysis-percent {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 26px;
+  color: #e7ebef;
+  text-align: right;
+}
+
 .waveform-reveal {
   transform-origin: left center;
   animation: waveform-pop-reveal 760ms cubic-bezier(0.16, 0.78, 0.25, 1) both;
@@ -620,11 +651,21 @@ body.app-daemon-locked > .in-app-window {
 }
 
 .sidebar-header h3 {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
   font-size: 9px;
   font-weight: bold;
   letter-spacing: 0.5px;
   color: var(--text-muted);
   text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-controls {
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .bpm-filter-btn {

@@ -851,7 +851,7 @@ button {
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 1px;
-  touch-action: manipulation;
+  touch-action: none;
 }
 
 .transport-button:active,
@@ -885,7 +885,7 @@ button {
   background: var(--bg-rack);
   color: var(--text-active);
   text-align: left;
-  touch-action: manipulation;
+  touch-action: none;
 }
 
 .cue-button::before {

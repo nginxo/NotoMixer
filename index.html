@@ -9,45 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
 </head>
-<body class="app-daemon-locked">
-  <div
-    id="song-analyzer-daemon"
-    class="song-analyzer-daemon-overlay show"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="song-analyzer-title"
-    aria-describedby="song-analyzer-status"
-  >
-    <div class="song-analyzer-daemon-panel">
-      <div class="song-analyzer-daemon-header">
-        <span class="song-analyzer-daemon-led" aria-hidden="true"></span>
-        <span id="song-analyzer-title">NOTOMIXER SONG ANALYZER DAEMON</span>
-      </div>
-      <div class="song-analyzer-daemon-body">
-        <div class="song-analyzer-daemon-mark" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span>
-        </div>
-        <p id="song-analyzer-status" class="song-analyzer-daemon-status">Starting analysis service...</p>
-        <p id="song-analyzer-current" class="song-analyzer-daemon-current">Preparing music library</p>
-        <div
-          id="song-analyzer-progress"
-          class="song-analyzer-progress"
-          role="progressbar"
-          aria-label="Song analysis progress"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow="0"
-        >
-          <div id="song-analyzer-progress-fill" class="song-analyzer-progress-fill"></div>
-          <div class="song-analyzer-progress-scanline"></div>
-        </div>
-        <div class="song-analyzer-daemon-footer">
-          <span id="song-analyzer-count">0 / 0</span>
-          <span id="song-analyzer-percent">0%</span>
-        </div>
-      </div>
-    </div>
-  </div>
+<body>
 
   <div class="exertia-container">
     
@@ -147,6 +109,25 @@
           <div class="sidebar-header">
             <h3 id="songs-header-title">AVAILABLE SONGS</h3>
             <div class="sidebar-controls" style="display: flex; gap: 4px; align-items: center;">
+              <div
+                id="song-analyzer-daemon"
+                class="library-analysis-inline show"
+                aria-hidden="false"
+              >
+                <div
+                  id="song-analyzer-progress"
+                  class="song-analyzer-progress library-analysis-progress"
+                  role="progressbar"
+                  aria-label="Song analysis progress"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                >
+                  <div id="song-analyzer-progress-fill" class="song-analyzer-progress-fill"></div>
+                  <div class="song-analyzer-progress-scanline"></div>
+                </div>
+                <span id="song-analyzer-percent" class="library-analysis-percent" aria-live="polite">0%</span>
+              </div>
               <input type="text" id="song-search-input" placeholder="Search..." style="background: #1a1a1a; border: 1px solid var(--border-light); color: var(--text-light); padding: 2px 6px; border-radius: 3px; font-size: 10px; outline: none; width: 90px; height: 18px; box-sizing: border-box;">
               <button id="btn-status-filter" style="background: #1a1a1a; border: 1px solid var(--border-light); border-radius: 3px; padding: 2px 6px; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; height: 18px; font-size: 10px; width: 28px; box-sizing: border-box;" title="Sort by compatibility">ALL</button>
               <button class="bpm-filter-btn" id="btn-bpm-filter" title="Toggle BPM filter reference track">
