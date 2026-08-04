@@ -1,6 +1,6 @@
 [Application Information]
 skipUpdate-request=False
-evaluation=True
+evaluation=False
 
 [Audio Settings]
 error-jingle=True
