@@ -2581,6 +2581,10 @@ function buildTabletControllerState() {
       maxSpeed: jogMaxSpeed,
       inertiaSeconds: jogInertiaSeconds
     },
+    snap: {
+      enabled: snapEnabled === true,
+      thresholdPct: Math.max(1, Math.min(15, Number(snapThresholdPct) || 5))
+    },
     libraryAnalysis: {
       inProgress: analysisInProgress,
       blocking: false,
@@ -2616,6 +2620,21 @@ function buildTabletControllerState() {
           refAudio && Number.isFinite(refAudio.duration)
             ? refAudio.duration
             : 0,
+        controls: {
+          filter: Number(document.getElementById(`filter-${trackNum}`)?.value ?? 50),
+          echo: Number(document.getElementById(`echo-${trackNum}`)?.value ?? 0),
+          reverb: Number(document.getElementById(`reverb-${trackNum}`)?.value ?? 0),
+          pan: Number(document.getElementById(`pan-${trackNum}`)?.value ?? 0),
+          speed: Math.round(Number(track.speedVal || 1) * 100),
+          volume: Number(document.getElementById(`vol-${trackNum}`)?.value ?? 100)
+        },
+        loop: {
+          enabled: track.loopEnabled === true,
+          hasIn: Number.isFinite(track.loopStartTime),
+          hasOut: Number.isFinite(track.loopEndTime),
+          beats: document.getElementById(`loop-display-${trackNum}`)?.textContent
+            || String(track.autoLoopBeats || 4)
+        },
         coverPath: track.coverArtPath || '',
         hasCover: Boolean(track.coverArtPath),
         cues: Array.from(
@@ -2864,6 +2883,37 @@ function setupTabletControllerExtension() {
       } else if (payload.action === 'stop') {
         stopTrack(trackNum);
       }
+      publishTabletControllerState(true);
+    } else if (payload?.type === 'control') {
+      const trackNum = Number(payload.trackNum);
+      const param = payload.param;
+      const value = Number(payload.value);
+      if ((trackNum !== 1 && trackNum !== 2) || !Number.isFinite(value)) return;
+      if (param === 'volume') {
+        setVolume(trackNum, value);
+      } else if (['filter', 'echo', 'reverb', 'pan', 'speed'].includes(param)) {
+        const input = document.getElementById(`${param}-${trackNum}`);
+        if (!input) return;
+        input.value = String(value);
+        input.dispatchEvent(new Event('input'));
+      } else {
+        return;
+      }
+      publishTabletControllerState(true);
+    } else if (payload?.type === 'loop') {
+      const trackNum = Number(payload.trackNum);
+      if (trackNum !== 1 && trackNum !== 2) return;
+      const actionToButton = {
+        in: 'btn-loop-in',
+        out: 'btn-loop-out',
+        auto: 'btn-auto-loop',
+        halve: 'btn-loop-halve',
+        double: 'btn-loop-double',
+        exit: 'btn-loop-exit'
+      };
+      const buttonPrefix = actionToButton[payload.action];
+      if (!buttonPrefix) return;
+      document.getElementById(`${buttonPrefix}-${trackNum}`)?.click();
       publishTabletControllerState(true);
     } else if (payload?.type === 'cue') {
       handleTabletControllerCue(payload);

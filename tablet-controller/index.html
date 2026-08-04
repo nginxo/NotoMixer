@@ -79,21 +79,64 @@
         </div>
       </header>
 
-      <div class="jog-zone">
-        <div
-          class="jog-shell"
-          id="jog-1"
-          role="slider"
-          aria-label="Track 1 jog wheel"
-          tabindex="0"
-        >
-          <div class="jog-disc">
-            <img class="jog-cover" id="jog-cover-1" src="/cover/1" alt="">
-            <span class="jog-grooves"></span>
-            <span class="jog-position"></span>
-            <span class="jog-spindle"></span>
+      <div class="deck-control-surface">
+        <aside class="channel-strip" aria-label="Track 1 effects and loops">
+          <button class="rotary-control" type="button" data-track="1" data-param="filter" data-min="0" data-max="100" data-value="50">
+            <span class="control-label">FILTER</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>50</output>
+          </button>
+          <button class="rotary-control" type="button" data-track="1" data-param="echo" data-min="0" data-max="100" data-value="0">
+            <span class="control-label">ECHO</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>0</output>
+          </button>
+          <button class="rotary-control" type="button" data-track="1" data-param="reverb" data-min="0" data-max="100" data-value="0">
+            <span class="control-label">REVERB</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>0</output>
+          </button>
+          <button class="rotary-control" type="button" data-track="1" data-param="pan" data-min="-100" data-max="100" data-value="0">
+            <span class="control-label">PAN</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>C</output>
+          </button>
+          <div class="loop-panel" data-track="1">
+            <div class="loop-primary">
+              <button type="button" data-loop-action="in">IN</button>
+              <button type="button" data-loop-action="out">OUT</button>
+              <button type="button" data-loop-action="auto">AUTO</button>
+            </div>
+            <div class="loop-adjust">
+              <button type="button" data-loop-action="halve" aria-label="Halve loop length">&lt;</button>
+              <strong id="loop-value-1">4</strong>
+              <button type="button" data-loop-action="double" aria-label="Double loop length">&gt;</button>
+              <button type="button" data-loop-action="exit">EXIT</button>
+            </div>
+          </div>
+        </aside>
+
+        <div class="jog-zone">
+          <div
+            class="jog-shell"
+            id="jog-1"
+            role="slider"
+            aria-label="Track 1 jog wheel"
+            tabindex="0"
+          >
+            <div class="jog-disc">
+              <img class="jog-cover" id="jog-cover-1" src="/cover/1" alt="">
+              <span class="jog-grooves"></span>
+              <span class="jog-position"></span>
+              <span class="jog-spindle"></span>
+            </div>
           </div>
         </div>
+
+        <aside class="fader-bank" aria-label="Track 1 tempo and volume">
+          <label class="fader-control">
+            <span>TEMPO</span><strong id="control-speed-value-1">100</strong>
+            <input id="control-speed-1" type="range" min="50" max="200" value="100" data-track="1" data-param="speed" orient="vertical">
+            <small><b>200</b><b>50</b></small>
+          </label>
+          <label class="fader-control">
+            <span>VOLUME</span><strong id="control-volume-value-1">100</strong>
+            <input id="control-volume-1" type="range" min="0" max="100" value="100" data-track="1" data-param="volume" orient="vertical">
+            <small><b>100</b><b>0</b></small>
+          </label>
+        </aside>
       </div>
 
       <div class="transport-panel">
@@ -127,21 +170,64 @@
         </div>
       </header>
 
-      <div class="jog-zone">
-        <div
-          class="jog-shell"
-          id="jog-2"
-          role="slider"
-          aria-label="Track 2 jog wheel"
-          tabindex="0"
-        >
-          <div class="jog-disc">
-            <img class="jog-cover" id="jog-cover-2" src="/cover/2" alt="">
-            <span class="jog-grooves"></span>
-            <span class="jog-position"></span>
-            <span class="jog-spindle"></span>
+      <div class="deck-control-surface">
+        <aside class="channel-strip" aria-label="Track 2 effects and loops">
+          <button class="rotary-control" type="button" data-track="2" data-param="filter" data-min="0" data-max="100" data-value="50">
+            <span class="control-label">FILTER</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>50</output>
+          </button>
+          <button class="rotary-control" type="button" data-track="2" data-param="echo" data-min="0" data-max="100" data-value="0">
+            <span class="control-label">ECHO</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>0</output>
+          </button>
+          <button class="rotary-control" type="button" data-track="2" data-param="reverb" data-min="0" data-max="100" data-value="0">
+            <span class="control-label">REVERB</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>0</output>
+          </button>
+          <button class="rotary-control" type="button" data-track="2" data-param="pan" data-min="-100" data-max="100" data-value="0">
+            <span class="control-label">PAN</span><svg class="rotary-knob" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" class="knob-body-circle"/><path class="knob-fill-arc" d=""/><line x1="20" y1="20" x2="20" y2="6" class="knob-pointer-line"/></svg><output>C</output>
+          </button>
+          <div class="loop-panel" data-track="2">
+            <div class="loop-primary">
+              <button type="button" data-loop-action="in">IN</button>
+              <button type="button" data-loop-action="out">OUT</button>
+              <button type="button" data-loop-action="auto">AUTO</button>
+            </div>
+            <div class="loop-adjust">
+              <button type="button" data-loop-action="halve" aria-label="Halve loop length">&lt;</button>
+              <strong id="loop-value-2">4</strong>
+              <button type="button" data-loop-action="double" aria-label="Double loop length">&gt;</button>
+              <button type="button" data-loop-action="exit">EXIT</button>
+            </div>
+          </div>
+        </aside>
+
+        <div class="jog-zone">
+          <div
+            class="jog-shell"
+            id="jog-2"
+            role="slider"
+            aria-label="Track 2 jog wheel"
+            tabindex="0"
+          >
+            <div class="jog-disc">
+              <img class="jog-cover" id="jog-cover-2" src="/cover/2" alt="">
+              <span class="jog-grooves"></span>
+              <span class="jog-position"></span>
+              <span class="jog-spindle"></span>
+            </div>
           </div>
         </div>
+
+        <aside class="fader-bank" aria-label="Track 2 tempo and volume">
+          <label class="fader-control">
+            <span>TEMPO</span><strong id="control-speed-value-2">100</strong>
+            <input id="control-speed-2" type="range" min="50" max="200" value="100" data-track="2" data-param="speed" orient="vertical">
+            <small><b>200</b><b>50</b></small>
+          </label>
+          <label class="fader-control">
+            <span>VOLUME</span><strong id="control-volume-value-2">100</strong>
+            <input id="control-volume-2" type="range" min="0" max="100" value="100" data-track="2" data-param="volume" orient="vertical">
+            <small><b>100</b><b>0</b></small>
+          </label>
+        </aside>
       </div>
 
       <div class="transport-panel">

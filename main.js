@@ -39,6 +39,10 @@ let updateCheckPromise = null;
 let updateDownloadPromise = null;
 let tabletControllerState = {
   type: 'state',
+  snap: {
+    enabled: false,
+    thresholdPct: 5
+  },
   libraryAnalysis: {
     inProgress: true,
     blocking: false,
@@ -267,6 +271,13 @@ function sanitizeTabletControllerState(nextState) {
       ? Math.max(0, Math.min(5, requestedInertia))
       : 0.7
   };
+  const requestedSnapThreshold = Number(nextState?.snap?.thresholdPct);
+  const snap = {
+    enabled: nextState?.snap?.enabled === true,
+    thresholdPct: Number.isFinite(requestedSnapThreshold)
+      ? Math.max(1, Math.min(15, requestedSnapThreshold))
+      : 5
+  };
   const tracks = Array.isArray(nextState?.tracks)
     ? nextState.tracks.slice(0, 2).map((track, index) => {
         const trackNum = index + 1;
@@ -304,7 +315,7 @@ function sanitizeTabletControllerState(nextState) {
   };
   libraryAnalysis.completed = Math.min(libraryAnalysis.completed, libraryAnalysis.total);
   libraryAnalysis.failed = Math.min(libraryAnalysis.failed, libraryAnalysis.completed);
-  return { type: 'state', jogPhysics, libraryAnalysis, tracks };
+  return { type: 'state', jogPhysics, snap, libraryAnalysis, tracks };
 }
 
 function sanitizeTabletControllerLibrary(nextLibrary) {
@@ -439,6 +450,44 @@ function forwardTabletControllerInput(payload) {
     ) {
       mainWindow.webContents.send('tablet-controller:input', {
         type: 'transport',
+        trackNum,
+        action
+      });
+    }
+    return;
+  }
+  if (payload.type === 'control') {
+    const trackNum = Number(payload.trackNum);
+    const param = payload.param;
+    const value = Number(payload.value);
+    const ranges = {
+      filter: [0, 100],
+      echo: [0, 100],
+      reverb: [0, 100],
+      pan: [-100, 100],
+      speed: [50, 200],
+      volume: [0, 100]
+    };
+    const range = Object.prototype.hasOwnProperty.call(ranges, param)
+      ? ranges[param]
+      : null;
+    if ((trackNum === 1 || trackNum === 2) && range && Number.isFinite(value)) {
+      mainWindow.webContents.send('tablet-controller:input', {
+        type: 'control',
+        trackNum,
+        param,
+        value: Math.max(range[0], Math.min(range[1], Math.round(value)))
+      });
+    }
+    return;
+  }
+  if (payload.type === 'loop') {
+    const trackNum = Number(payload.trackNum);
+    const action = payload.action;
+    const allowedActions = new Set(['in', 'out', 'auto', 'halve', 'double', 'exit']);
+    if ((trackNum === 1 || trackNum === 2) && allowedActions.has(action)) {
+      mainWindow.webContents.send('tablet-controller:input', {
+        type: 'loop',
         trackNum,
         action
       });

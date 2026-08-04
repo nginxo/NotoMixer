@@ -288,7 +288,7 @@ button {
   --deck-header: var(--track-one-header);
   position: relative;
   display: grid;
-  grid-template-rows: 38px minmax(160px, 1fr) 42px auto;
+  grid-template-rows: 42px minmax(0, 1fr) 42px clamp(112px, 20dvh, 154px);
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border-light);
@@ -687,22 +687,265 @@ button {
   line-height: 1;
 }
 
+.deck-control-surface {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-columns: minmax(84px, 0.22fr) minmax(180px, 1fr) minmax(108px, 0.27fr);
+  border-bottom: 1px solid var(--border-dark);
+  background: #171717;
+}
+
+.channel-strip,
+.fader-bank {
+  min-width: 0;
+  min-height: 0;
+  background: #121212;
+}
+
+.channel-strip {
+  display: grid;
+  grid-template-rows: repeat(4, minmax(55px, 1fr)) auto;
+  padding: 7px 6px 6px;
+  overflow: hidden;
+  border-right: 1px solid var(--border-light);
+}
+
+.rotary-control {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(34px, 1fr) auto;
+  place-items: center;
+  gap: 2px;
+  padding: 3px 1px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-active);
+  touch-action: none;
+}
+
+.rotary-control:focus-visible .rotary-knob,
+.rotary-control.grabbed .rotary-knob {
+  box-shadow: 0 0 0 1px var(--deck-color), 0 0 16px color-mix(in srgb, var(--deck-color) 28%, transparent);
+}
+
+.control-label,
+.fader-control > span {
+  color: #f1f1f1;
+  font-size: clamp(8px, 0.8vw, 11px);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.rotary-knob {
+  display: block;
+  width: clamp(44px, 3.6vw, 58px);
+  aspect-ratio: 1;
+  align-self: center;
+  overflow: visible;
+}
+
+.rotary-knob .knob-body-circle {
+  fill: #1d1d1d;
+  stroke: #444;
+  stroke-width: 2.5;
+}
+
+.rotary-knob .knob-fill-arc {
+  fill: none;
+  stroke: var(--deck-color);
+  stroke-width: 2.5;
+  stroke-linecap: square;
+}
+
+.rotary-knob .knob-pointer-line {
+  stroke: #c0c0c0;
+  stroke-width: 2.5;
+  stroke-linecap: square;
+}
+
+.rotary-control output {
+  min-height: 10px;
+  color: var(--deck-color);
+  font-size: 7px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.loop-panel {
+  display: grid;
+  gap: 4px;
+  padding-top: 5px;
+  border-top: 1px solid #2f2f2f;
+}
+
+.loop-primary,
+.loop-adjust {
+  display: grid;
+  gap: 3px;
+}
+
+.loop-primary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.loop-adjust {
+  grid-template-columns: 23px minmax(20px, 1fr) 23px;
+}
+
+.loop-adjust button:last-child {
+  grid-column: 1 / -1;
+}
+
+.loop-panel button,
+.loop-panel strong {
+  display: grid;
+  min-width: 0;
+  min-height: 25px;
+  place-items: center;
+  padding: 0 3px;
+  border: 1px solid #3f3f3f;
+  background: #292929;
+  color: #e5e5e5;
+  font-size: 8px;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+.loop-panel button:active,
+.loop-panel button.pressed,
+.loop-panel button.active {
+  border-color: var(--deck-color);
+  background: var(--deck-header);
+  color: #fff;
+}
+
+.fader-bank {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  border-left: 1px solid var(--border-light);
+}
+
+.fader-control {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 1fr 25px;
+  grid-template-rows: 22px minmax(70px, 1fr);
+  align-items: center;
+  justify-items: center;
+  padding: 5px 6px 6px;
+  overflow: hidden;
+  border-bottom: 1px solid #303030;
+}
+
+.fader-control > span {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.fader-control > strong {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--deck-color);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fader-control input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 66px;
+  height: 100%;
+  min-height: 70px;
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0;
+  outline: none;
+  background: transparent;
+  cursor: ns-resize;
+  direction: rtl;
+  touch-action: none;
+  writing-mode: vertical-lr;
+}
+
+.fader-control input::-webkit-slider-runnable-track {
+  width: 10px;
+  height: 100%;
+  border: 1px solid #4a4a4a;
+  background: #303030;
+  box-shadow: inset 0 0 0 2px #191919;
+}
+
+.fader-control input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 62px;
+  height: 24px;
+  margin-left: -27px;
+  border: 1px solid #9a9a9a;
+  background:
+    linear-gradient(180deg, #a1a1a1 0 42%, #565656 43% 56%, #8a8a8a 57% 100%);
+  box-shadow: 0 2px 5px #000, inset 0 1px rgba(255, 255, 255, 0.35);
+  cursor: ns-resize;
+}
+
+.fader-control input:focus-visible::-webkit-slider-thumb {
+  border-color: var(--deck-color);
+  box-shadow: 0 0 0 1px var(--deck-color), 0 2px 5px #000;
+}
+
+.fader-control input::-moz-range-track {
+  width: 10px;
+  height: 100%;
+  border: 1px solid #4a4a4a;
+  background: #303030;
+  box-shadow: inset 0 0 0 2px #191919;
+}
+
+.fader-control input::-moz-range-thumb {
+  width: 62px;
+  height: 24px;
+  border: 1px solid #9a9a9a;
+  border-radius: 0;
+  background: linear-gradient(180deg, #a1a1a1 0 42%, #565656 43% 56%, #8a8a8a 57% 100%);
+  box-shadow: 0 2px 5px #000;
+}
+
+.fader-control small {
+  display: flex;
+  height: 100%;
+  min-height: 70px;
+  grid-column: 2;
+  grid-row: 2;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 5px 0;
+  color: #bdbdbd;
+  font-size: 7px;
+  font-variant-numeric: tabular-nums;
+}
+
 .jog-zone {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
-  padding: 8px;
+  padding: 3px;
+  background: #252525;
 }
 
 .jog-shell {
   position: relative;
-  width: min(100%, 42vh);
-  min-width: 155px;
-  max-width: 330px;
+  width: min(100%, 57vh);
+  min-width: 0;
+  max-width: 560px;
   aspect-ratio: 1;
   justify-self: center;
-  padding: clamp(15px, 2.3vw, 24px);
+  padding: clamp(14px, 1.7vw, 24px);
   border: 1px solid var(--border-light);
   outline: none;
   background: var(--bg-rack);
@@ -814,11 +1057,13 @@ button {
 .cue-panel {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   gap: 5px;
   padding: 6px;
   border-top: 1px solid var(--border-light);
   background: #1b1b1b;
+  overflow: hidden;
 }
 
 .cue-panel-label {
@@ -831,7 +1076,10 @@ button {
 
 .cue-grid {
   display: grid;
+  min-height: 0;
+  flex: 1;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 4px;
 }
 
@@ -874,7 +1122,7 @@ button {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: clamp(42px, 7vh, 58px);
+  min-height: 0;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
@@ -938,8 +1186,24 @@ button {
 }
 
 @media (max-width: 900px) {
+  .deck-control-surface {
+    grid-template-columns: 70px minmax(145px, 1fr) 92px;
+  }
+
+  .channel-strip {
+    padding-right: 4px;
+    padding-left: 4px;
+  }
+
+  .rotary-knob {
+    width: 42px;
+  }
+
+  .loop-adjust {
+    grid-template-columns: 19px minmax(16px, 1fr) 19px;
+  }
+
   .cue-button {
-    min-height: 38px;
     padding-right: 5px;
     padding-left: 25px;
   }
@@ -947,6 +1211,76 @@ button {
   .cue-button::before {
     left: 6px;
     font-size: 12px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 680px) {
+  body {
+    grid-template-rows: 36px minmax(0, 1fr);
+  }
+
+  .app-header {
+    min-height: 36px;
+  }
+
+  .decks {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .deck {
+    grid-template-rows: 36px minmax(0, 1fr) 36px clamp(100px, 19dvh, 122px);
+  }
+
+  .channel-strip {
+    grid-template-rows: repeat(4, minmax(43px, 1fr)) auto;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .rotary-control {
+    grid-template-rows: auto minmax(28px, 1fr) auto;
+    padding-top: 1px;
+    padding-bottom: 1px;
+  }
+
+  .rotary-knob {
+    width: 38px;
+  }
+
+  .loop-panel {
+    gap: 2px;
+    padding-top: 3px;
+  }
+
+  .loop-primary,
+  .loop-adjust {
+    gap: 2px;
+  }
+
+  .loop-panel button,
+  .loop-panel strong {
+    min-height: 20px;
+    font-size: 7px;
+  }
+
+  .cue-panel {
+    gap: 3px;
+    padding: 4px;
+  }
+
+  .cue-panel-label {
+    height: 14px;
+    padding: 2px 4px;
+  }
+
+  .cue-grid {
+    gap: 3px;
+  }
+
+  .cue-button {
+    padding-top: 3px;
+    padding-bottom: 3px;
   }
 }
 
@@ -960,10 +1294,10 @@ button {
   }
 
   .deck {
-    min-height: 560px;
+    min-height: 760px;
   }
 
   .jog-shell {
-    width: min(42vw, 250px);
+    width: min(48vw, 320px);
   }
 }

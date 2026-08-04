@@ -17,6 +17,10 @@ const jogPhysics = {
   maxSpeed: 16,
   inertiaSeconds: 0.7
 };
+const mixerSnap = {
+  enabled: false,
+  thresholdPct: 5
+};
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -164,6 +168,191 @@ function setupTransportButtons(trackNum) {
     });
     button.addEventListener('contextmenu', event => event.preventDefault());
   });
+}
+
+function formatMixerControlValue(param, value) {
+  const rounded = Math.round(Number(value) || 0);
+  if (param === 'filter') {
+    if (rounded === 50) return 'BYP';
+    return rounded < 50 ? `LP ${Math.abs((rounded - 50) * 2)}` : `HP ${(rounded - 50) * 2}`;
+  }
+  if (param === 'pan') {
+    if (rounded === 0) return 'C';
+    return rounded < 0 ? `L ${Math.abs(rounded)}` : `R ${rounded}`;
+  }
+  return `${rounded}%`;
+}
+
+function controllerKnobPoint(angle) {
+  const radians = (angle - 90) * Math.PI / 180;
+  return {
+    x: 20 + 16 * Math.cos(radians),
+    y: 20 + 16 * Math.sin(radians)
+  };
+}
+
+function drawControllerKnobArc(element, percent) {
+  if (!element || percent <= 0) {
+    if (element) element.setAttribute('d', '');
+    return;
+  }
+  const startAngle = -135;
+  const endAngle = startAngle + percent * 270;
+  const start = controllerKnobPoint(startAngle);
+  const end = controllerKnobPoint(endAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+  element.setAttribute(
+    'd',
+    `M ${start.x} ${start.y} A 16 16 0 ${largeArcFlag} 1 ${end.x} ${end.y}`
+  );
+}
+
+function applyMixerControlSnap(param, value, min, max) {
+  if (!mixerSnap.enabled) return value;
+  const snapTargets = {
+    filter: 50,
+    pan: 0,
+    speed: 100
+  };
+  if (!Object.prototype.hasOwnProperty.call(snapTargets, param)) return value;
+  const threshold = (mixerSnap.thresholdPct / 100) * (max - min);
+  const target = snapTargets[param];
+  return Math.abs(value - target) <= threshold ? target : value;
+}
+
+function updateLocalMixerControl(trackNum, param, value, { send = false } = {}) {
+  const rotary = document.querySelector(
+    `.rotary-control[data-track="${trackNum}"][data-param="${param}"]`
+  );
+  const fader = document.getElementById(`control-${param}-${trackNum}`);
+  const min = Number(rotary?.dataset.min ?? fader?.min ?? 0);
+  const max = Number(rotary?.dataset.max ?? fader?.max ?? 100);
+  const clampedValue = Math.max(min, Math.min(max, Number(value) || 0));
+  const snappedValue = send
+    ? applyMixerControlSnap(param, clampedValue, min, max)
+    : clampedValue;
+  const safeValue = Math.round(snappedValue);
+
+  if (rotary) {
+    const percent = (safeValue - min) / Math.max(1, max - min);
+    rotary.dataset.value = String(safeValue);
+    rotary.setAttribute('aria-valuemin', String(min));
+    rotary.setAttribute('aria-valuemax', String(max));
+    rotary.setAttribute('aria-valuenow', String(safeValue));
+    rotary.setAttribute('aria-label', `Track ${trackNum} ${param}`);
+    const pointer = rotary.querySelector('.knob-pointer-line');
+    const fill = rotary.querySelector('.knob-fill-arc');
+    const output = rotary.querySelector('output');
+    drawControllerKnobArc(fill, percent);
+    if (pointer) {
+      pointer.setAttribute('transform', `rotate(${-135 + percent * 270} 20 20)`);
+    }
+    if (output) output.textContent = formatMixerControlValue(param, safeValue);
+  }
+
+  if (fader) fader.value = String(safeValue);
+  const faderValue = document.getElementById(`control-${param}-value-${trackNum}`);
+  if (faderValue) faderValue.textContent = String(safeValue);
+
+  if (send) sendMessage({ type: 'control', trackNum, param, value: safeValue });
+}
+
+function setupRotaryControls(trackNum) {
+  document.querySelectorAll(`.rotary-control[data-track="${trackNum}"]`).forEach(control => {
+    const param = control.dataset.param;
+    let pointerId = null;
+    let startY = 0;
+    let startValue = Number(control.dataset.value) || 0;
+
+    const release = event => {
+      if (pointerId === null || (event && event.pointerId !== pointerId)) return;
+      pointerId = null;
+      control.classList.remove('grabbed');
+    };
+
+    control.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || pointerId !== null) return;
+      event.preventDefault();
+      pointerId = event.pointerId;
+      startY = event.clientY;
+      startValue = Number(control.dataset.value) || 0;
+      control.classList.add('grabbed');
+      try {
+        control.setPointerCapture(event.pointerId);
+      } catch (error) {}
+    });
+    control.addEventListener('pointermove', event => {
+      if (event.pointerId !== pointerId) return;
+      event.preventDefault();
+      const min = Number(control.dataset.min);
+      const max = Number(control.dataset.max);
+      const nextValue = startValue + ((startY - event.clientY) / 110) * (max - min);
+      updateLocalMixerControl(trackNum, param, nextValue, { send: true });
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(eventName => {
+      control.addEventListener(eventName, release);
+    });
+    control.addEventListener('dblclick', () => {
+      const resetValue = param === 'filter' ? 50 : 0;
+      updateLocalMixerControl(trackNum, param, resetValue, { send: true });
+    });
+    control.addEventListener('keydown', event => {
+      const direction = event.key === 'ArrowUp' || event.key === 'ArrowRight'
+        ? 1
+        : event.key === 'ArrowDown' || event.key === 'ArrowLeft'
+          ? -1
+          : 0;
+      if (!direction) return;
+      event.preventDefault();
+      updateLocalMixerControl(
+        trackNum,
+        param,
+        (Number(control.dataset.value) || 0) + direction,
+        { send: true }
+      );
+    });
+    control.addEventListener('contextmenu', event => event.preventDefault());
+    updateLocalMixerControl(trackNum, param, startValue);
+  });
+}
+
+function setupFaderControls(trackNum) {
+  ['speed', 'volume'].forEach(param => {
+    const input = document.getElementById(`control-${param}-${trackNum}`);
+    if (!input) return;
+    input.addEventListener('input', () => {
+      updateLocalMixerControl(trackNum, param, Number(input.value), { send: true });
+    });
+    updateLocalMixerControl(trackNum, param, Number(input.value));
+  });
+}
+
+function setupLoopControls(trackNum) {
+  const panel = document.querySelector(`.loop-panel[data-track="${trackNum}"]`);
+  if (!panel) return;
+  panel.querySelectorAll('[data-loop-action]').forEach(button => {
+    button.addEventListener('click', () => {
+      sendMessage({ type: 'loop', trackNum, action: button.dataset.loopAction });
+    });
+  });
+}
+
+function renderMixerControls(trackNum, track) {
+  const controls = track?.controls || {};
+  ['filter', 'echo', 'reverb', 'pan', 'speed', 'volume'].forEach(param => {
+    if (Number.isFinite(Number(controls[param]))) {
+      updateLocalMixerControl(trackNum, param, Number(controls[param]));
+    }
+  });
+
+  const loop = track?.loop || {};
+  const loopValue = document.getElementById(`loop-value-${trackNum}`);
+  if (loopValue && loop.beats !== undefined) loopValue.textContent = String(loop.beats);
+  const panel = document.querySelector(`.loop-panel[data-track="${trackNum}"]`);
+  if (!panel) return;
+  panel.querySelector('[data-loop-action="auto"]')?.classList.toggle('active', loop.enabled === true);
+  panel.querySelector('[data-loop-action="in"]')?.classList.toggle('active', loop.hasIn === true);
+  panel.querySelector('[data-loop-action="out"]')?.classList.toggle('active', loop.hasOut === true);
 }
 
 function getSongBpmCompatibility(songBpm, referenceBpm) {
@@ -638,6 +827,7 @@ function renderTrack(track, index) {
     playButton.classList.toggle('active', view.playing || view.loading);
     playButton.textContent = view.loading ? 'LOADING' : view.playing ? 'PAUSE' : 'PLAY';
   }
+  renderMixerControls(trackNum, track);
 
   if (
     (activeSongSelectorTrack === 1 || activeSongSelectorTrack === 2)
@@ -718,6 +908,11 @@ function renderState(state) {
   }
   if (Number.isFinite(inertiaSeconds)) {
     jogPhysics.inertiaSeconds = Math.max(0, Math.min(5, inertiaSeconds));
+  }
+  mixerSnap.enabled = state.snap?.enabled === true;
+  const snapThresholdPct = Number(state.snap?.thresholdPct);
+  if (Number.isFinite(snapThresholdPct)) {
+    mixerSnap.thresholdPct = Math.max(1, Math.min(15, snapThresholdPct));
   }
   state.tracks.forEach(renderTrack);
 }
@@ -817,6 +1012,9 @@ function animateJogWheels(now) {
 [1, 2].forEach(trackNum => {
   createCueButtons(trackNum);
   setupTransportButtons(trackNum);
+  setupRotaryControls(trackNum);
+  setupFaderControls(trackNum);
+  setupLoopControls(trackNum);
   createSongSelector(trackNum);
   setupJog(trackNum);
 });
