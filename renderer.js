@@ -2,8 +2,14 @@ const { ipcRenderer, webUtils } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { pathToFileURL } = require('url');
 const { loadNotoMixerConfig } = require('./notomixer-config');
+const {
+  getCompatibleAudioPath,
+  getCompatibleAudioPaths,
+  isM4aFile
+} = require('./audio-compat');
 const {
   hydrateUserSettings,
   saveUserSettings
@@ -4326,6 +4332,16 @@ function updateKnobUI(trackNum, param, val, { syncInput = true } = {}) {
   }
 }
 
+async function decodeAudioFile(audioContext, filePath) {
+  const compatiblePath = await getCompatibleAudioPath(filePath);
+  const data = await fs.promises.readFile(compatiblePath);
+  const arrayBuffer = data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength
+  );
+  return audioContext.decodeAudioData(arrayBuffer);
+}
+
 function getVinylPitchSemitones(playbackRate) {
   const safeRate = Math.max(0.01, Number(playbackRate) || 1);
   return 12 * Math.log2(safeRate);
@@ -7675,7 +7691,7 @@ function setupUIListeners() {
         cell.classList.remove('dragover');
       });
       
-      cell.addEventListener('drop', (e) => {
+      cell.addEventListener('drop', async (e) => {
         e.preventDefault();
         e.stopPropagation();
         cell.classList.remove('dragover');
@@ -7703,36 +7719,29 @@ function setupUIListeners() {
             btn.textContent = "LOADING...";
             btn.classList.remove('empty-sound-btn');
             
-            const fileData = fs.readFileSync(filePath);
-            const arrayBuffer = fileData.buffer.slice(fileData.byteOffset, fileData.byteOffset + fileData.byteLength);
+            const audioBuffer = await decodeAudioFile(audioCtx, filePath);
+            stopTrackSampleEffect(trackNum, btnIdx);
+            tracks[trackNum].soundButtons[btnIdx] = {
+              path: filePath,
+              name: fileName,
+              buffer: audioBuffer
+            };
+
+            btn.textContent = fileName.toUpperCase();
+            btn.classList.add('loaded');
+            btn.style.color = ''; // Reset inline color
+            btn.style.borderColor = ''; // Reset inline border color
+            btn.title = `${filePath} — right-click for effect settings; middle-click to stop`;
             
-            audioCtx.decodeAudioData(arrayBuffer, (audioBuffer) => {
-              stopTrackSampleEffect(trackNum, btnIdx);
-              tracks[trackNum].soundButtons[btnIdx] = {
-                path: filePath,
-                name: fileName,
-                buffer: audioBuffer
-              };
-              
-              btn.textContent = fileName.toUpperCase();
-              btn.classList.add('loaded');
-              btn.style.color = ''; // Reset inline color
-              btn.style.borderColor = ''; // Reset inline border color
-              btn.title = `${filePath} — right-click for effect settings; middle-click to stop`;
-              
-              // Also clear any hot cue for this slot
-              tracks[trackNum].hotCues[btnIdx] = null;
-              clearEndSyncCueAssignmentsForCue(trackNum, btnIdx);
-              btn.draggable = false;
-              btn.classList.remove('cue-draggable');
-              logConsole(`Success: Loaded sample '${fileName}' into Track ${trackNum} button ${btnIdx + 1}`, 'system');
-            }, (decodeErr) => {
-              btn.textContent = "DECODE ERR";
-              logConsole(`Err: Decode failed for '${fileName}': ${decodeErr.message}`, 'err');
-            });
+            // Also clear any hot cue for this slot
+            tracks[trackNum].hotCues[btnIdx] = null;
+            clearEndSyncCueAssignmentsForCue(trackNum, btnIdx);
+            btn.draggable = false;
+            btn.classList.remove('cue-draggable');
+            logConsole(`Success: Loaded sample '${fileName}' into Track ${trackNum} button ${btnIdx + 1}`, 'system');
           } catch (readErr) {
-            btn.textContent = "READ ERR";
-            logConsole(`Err: Failed to read file '${fileName}': ${readErr.message}`, 'err');
+            btn.textContent = "DECODE ERR";
+            logConsole(`Err: Failed to decode file '${fileName}': ${readErr.message}`, 'err');
           }
         }
       });
@@ -8271,9 +8280,11 @@ function reverseAudioBuffer(buffer, audioCtx) {
 // Song Directory Loading System & Sync
 // -------------------------------------------------------------
 
-function loadDirectoryStems(trackNum, dirPath) {
+async function loadDirectoryStems(trackNum, dirPath) {
   try {
     const track = tracks[trackNum];
+    const directoryLoadToken = (track._directoryLoadToken || 0) + 1;
+    track._directoryLoadToken = directoryLoadToken;
     stopTrack(trackNum); // Force stop channel
     clearEndSyncCueAssignmentsForTarget(trackNum);
     clearTrackHotCues(trackNum);
@@ -8342,6 +8353,25 @@ function loadDirectoryStems(trackNum, dirPath) {
       }
     }
 
+    const originalAudioPaths = [];
+    if (mainFile) originalAudioPaths.push(path.join(actualDirPath, mainFile));
+    if (vocalsFile) originalAudioPaths.push(path.join(actualDirPath, vocalsFile));
+    instFiles.forEach(file => originalAudioPaths.push(path.join(actualDirPath, file)));
+    if (originalAudioPaths.some(isM4aFile)) {
+      logConsole(`M4A: Checking codec compatibility for Track ${trackNum}...`, 'system');
+    }
+    const compatibleAudioPaths = await getCompatibleAudioPaths(originalAudioPaths);
+    if (track._directoryLoadToken !== directoryLoadToken) return;
+    const convertedM4aCount = originalAudioPaths.filter(
+      originalPath => compatibleAudioPaths.get(originalPath) !== originalPath
+    ).length;
+    if (convertedM4aCount > 0) {
+      logConsole(`M4A: Lossless compatibility cache ready for Track ${trackNum}.`, 'system');
+    }
+    const getPlayablePath = originalPath => (
+      compatibleAudioPaths.get(originalPath) || originalPath
+    );
+
     let hasAtLeastOneFile = false;
     initAudio(trackNum); // Ensure context exists
 
@@ -8350,7 +8380,8 @@ function loadDirectoryStems(trackNum, dirPath) {
     const mainCell = document.getElementById(`cell-main-${trackNum}`);
     track.staticWaveform = null; // Clear old static waveform
     if (mainFile) {
-      const filePath = path.join(actualDirPath, mainFile);
+      const originalFilePath = path.join(actualDirPath, mainFile);
+      const filePath = getPlayablePath(originalFilePath);
       const data = fs.readFileSync(filePath);
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
@@ -8382,7 +8413,8 @@ function loadDirectoryStems(trackNum, dirPath) {
     const vocalsIndicator = document.getElementById(`ind-vocals-${trackNum}`);
     const vocalsCell = document.getElementById(`cell-voc-${trackNum}`);
     if (vocalsFile) {
-      const filePath = path.join(actualDirPath, vocalsFile);
+      const originalFilePath = path.join(actualDirPath, vocalsFile);
+      const filePath = getPlayablePath(originalFilePath);
       const data = fs.readFileSync(filePath);
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
@@ -8416,7 +8448,8 @@ function loadDirectoryStems(trackNum, dirPath) {
     
     if (instFiles.length > 0) {
       instFiles.forEach(file => {
-        const filePath = path.join(actualDirPath, file);
+        const originalFilePath = path.join(actualDirPath, file);
+        const filePath = getPlayablePath(originalFilePath);
         const data = fs.readFileSync(filePath);
         const mimeType = getMimeType(filePath);
         const blob = new Blob([data], { type: mimeType });
@@ -8515,23 +8548,12 @@ function loadDirectoryStems(trackNum, dirPath) {
       }
 
       logConsole(`Waveform: Starting combined decode for ${pathsToDecode.length} files...`, 'system');
-      const decodePromises = pathsToDecode.map(filePath => {
-        return new Promise((resolve, reject) => {
-          try {
-            const data = fs.readFileSync(filePath);
-            const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-            audioCtx.decodeAudioData(arrayBuffer)
-              .then(resolve)
-              .catch(err => {
-                logConsole(`Warning Waveform: Unable to decode ${path.basename(filePath)}: ${err.message}`, 'err');
-                resolve(null); // Resolve as null to not block other tracks
-              });
-          } catch (err) {
-            logConsole(`Warning Waveform: Unable to read ${path.basename(filePath)}: ${err.message}`, 'err');
-            resolve(null);
-          }
-        });
-      });
+      const decodePromises = pathsToDecode.map(filePath => (
+        decodeAudioFile(audioCtx, filePath).catch(err => {
+          logConsole(`Warning Waveform: Unable to decode ${path.basename(filePath)}: ${err.message}`, 'err');
+          return null;
+        })
+      ));
 
       Promise.all(decodePromises).then(buffers => {
         // Associate decoded buffers with stems for real-time scratching
@@ -8699,8 +8721,26 @@ let bpmFilterTrack = 1; // 1 or 2, which track to compare against
 let currentStatusFilter = 'ALL'; // 'ALL', '✓', '⚠', '✗'
 let currentSearchQuery = '';
 let currentPlaylistFilter = '';
-let songAnalyzerQueue = Promise.resolve();
 let songAnalyzerGeneration = 0;
+const songAnalyzerPendingJobs = [];
+let songAnalyzerActiveJobs = 0;
+
+const songAnalyzerLogicalCoreCount = Math.max(
+  1,
+  typeof os.availableParallelism === 'function'
+    ? os.availableParallelism()
+    : os.cpus().length
+);
+const songAnalyzerCpuWorkerLimit = Math.max(1, songAnalyzerLogicalCoreCount - 1);
+const songAnalyzerMemoryWorkerLimit = Math.max(
+  1,
+  Math.floor(Math.max(0, os.totalmem() - (2 * 1024 ** 3)) / (768 * 1024 ** 2))
+);
+const SONG_ANALYZER_WORKER_COUNT = Math.max(
+  1,
+  Math.min(songAnalyzerCpuWorkerLimit, songAnalyzerMemoryWorkerLimit)
+);
+let songAnalysisWorkerPool = null;
 let portableSongAnalysisCache = null;
 let portableSongAnalysisCacheRoot = '';
 const verifiedSongAnalysis = new Map();
@@ -9094,7 +9134,9 @@ function renderMediaSupportAvailability(isRemoved) {
 
 function resetSongAnalyzerForUnavailableSupport() {
   const generation = ++songAnalyzerGeneration;
-  songAnalyzerQueue = Promise.resolve();
+  while (songAnalyzerPendingJobs.length > 0) {
+    songAnalyzerPendingJobs.shift().resolve(null);
+  }
   songAnalyzerUiState = {
     generation,
     total: 0,
@@ -9751,11 +9793,8 @@ async function findSongCover(songPath, mainAudioPath, isFile) {
   }
 
   try {
-    const mm = require('music-metadata');
-    const metadata = await mm.parseFile(mainAudioPath);
-    if (!metadata.common.picture || metadata.common.picture.length === 0) return '';
-
-    const picture = metadata.common.picture[0];
+    const picture = await ipcRenderer.invoke('audio-metadata:get-cover', mainAudioPath);
+    if (!picture?.data) return '';
     const { artworkDirectory } = getPortableSongCachePaths();
     if (!fs.existsSync(artworkDirectory)) {
       fs.mkdirSync(artworkDirectory, { recursive: true });
@@ -9763,7 +9802,7 @@ async function findSongCover(songPath, mainAudioPath, isFile) {
     const portableIdentity = normalizePortableRelativePath(mainAudioPath);
     const safeName = crypto.createHash('md5').update(portableIdentity).digest('hex') + '.jpg';
     const cachedCoverPath = path.join(artworkDirectory, safeName);
-    fs.writeFileSync(cachedCoverPath, picture.data);
+    fs.writeFileSync(cachedCoverPath, Buffer.from(picture.data));
     return cachedCoverPath;
   } catch (error) {
     console.warn(`Cover extraction failed for ${mainAudioPath}:`, error);
@@ -9889,19 +9928,18 @@ async function analyzeSongMetadata(
 
   const decodedBuffers = [];
   for (const filePath of audioFiles) {
-    const data = await fs.promises.readFile(filePath);
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    decodedBuffers.push(await previewAudioCtx.decodeAudioData(arrayBuffer));
+    decodedBuffers.push(await decodeAudioFile(previewAudioCtx, filePath));
   }
 
-  const mainBuffer = decodedBuffers[0];
-  const duration = Math.max(...decodedBuffers.map(buffer => buffer.duration));
-  const bpm = estimateBPM(mainBuffer);
-  const key = estimateMusicalKey(mainBuffer);
-  const offset = estimateBeatOffset(mainBuffer, bpm);
-  const waveformPeaks = generateCombinedWaveformPeaks(decodedBuffers, 2000);
-  const peaks = downsampleWaveformPeaks(waveformPeaks, 60);
-  const silence = detectSilenceBoundaries(decodedBuffers);
+  const {
+    duration,
+    bpm,
+    key,
+    offset,
+    waveformPeaks,
+    peaks,
+    silence
+  } = await getSongAnalysisWorkerPool().analyze(decodedBuffers);
   const mainStats = fs.statSync(mainAudioPath);
   const cover = await findSongCover(songPath, mainAudioPath, isFile);
 
@@ -9932,13 +9970,40 @@ async function analyzeSongMetadata(
   return meta;
 }
 
+function drainSongAnalyzerJobs() {
+  while (
+    songAnalyzerActiveJobs < SONG_ANALYZER_WORKER_COUNT &&
+    songAnalyzerPendingJobs.length > 0
+  ) {
+    const queuedJob = songAnalyzerPendingJobs.shift();
+    if (queuedJob.generation !== songAnalyzerGeneration) {
+      queuedJob.resolve(null);
+      continue;
+    }
+
+    songAnalyzerActiveJobs += 1;
+    Promise.resolve()
+      .then(queuedJob.run)
+      .then(queuedJob.resolve, queuedJob.reject)
+      .finally(() => {
+        songAnalyzerActiveJobs -= 1;
+        drainSongAnalyzerJobs();
+      });
+  }
+}
+
+function enqueueSongAnalyzerJob(generation, run) {
+  return new Promise((resolve, reject) => {
+    songAnalyzerPendingJobs.push({ generation, run, resolve, reject });
+    drainSongAnalyzerJobs();
+  });
+}
+
 function loadSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanvas, artImg, generation) {
   if (bpmElement) bpmElement.textContent = 'QUEUED';
   if (keyElement) keyElement.textContent = '--';
   const songName = path.basename(songPath);
-  const job = songAnalyzerQueue
-    .catch(() => {})
-    .then(() => {
+  return enqueueSongAnalyzerJob(generation, () => {
       if (generation !== songAnalyzerGeneration) return null;
       setSongAnalyzerActiveSong(generation, songName);
       return analyzeSongMetadata(
@@ -9964,8 +10029,6 @@ function loadSongMetadata(songPath, keyElement, bpmElement, durElement, waveCanv
       settleSongAnalyzerItem(generation, songName, true);
       throw error;
     });
-  songAnalyzerQueue = job.catch(() => {});
-  return job;
 }
 
 ipcRenderer.on('working-directory-selected', (event, dirPath) => {
@@ -10637,6 +10700,215 @@ function estimateBeatOffset(audioBuffer, bpm) {
     return 0;
   }
 }
+
+function buildSongAnalysisWorkerSource() {
+  return `
+    const MUSICAL_KEY_NAMES = ${JSON.stringify(MUSICAL_KEY_NAMES)};
+    const MAJOR_KEY_PROFILE = ${JSON.stringify(MAJOR_KEY_PROFILE)};
+    const MINOR_KEY_PROFILE = ${JSON.stringify(MINOR_KEY_PROFILE)};
+    ${transformFftInPlace.toString()}
+    ${scoreMusicalKeyProfile.toString()}
+    ${estimateMusicalKey.toString()}
+    ${estimateBPM.toString()}
+    ${estimateBeatOffset.toString()}
+    ${generateCombinedWaveformPeaks.toString()}
+    ${downsampleWaveformPeaks.toString()}
+    ${detectSilenceBoundaries.toString()}
+
+    function restoreAudioBuffer(serializedBuffer) {
+      return {
+        sampleRate: serializedBuffer.sampleRate,
+        length: serializedBuffer.length,
+        duration: serializedBuffer.length / serializedBuffer.sampleRate,
+        numberOfChannels: serializedBuffer.channels.length,
+        getChannelData(channel) {
+          return serializedBuffer.channels[channel];
+        }
+      };
+    }
+
+    self.onmessage = event => {
+      const message = event.data;
+      try {
+        const audioBuffers = message.buffers.map(restoreAudioBuffer);
+        const mainBuffer = audioBuffers[0];
+        const duration = Math.max(...audioBuffers.map(buffer => buffer.duration));
+        const bpm = estimateBPM(mainBuffer);
+        const key = estimateMusicalKey(mainBuffer);
+        const offset = estimateBeatOffset(mainBuffer, bpm);
+        const waveformPeaks = generateCombinedWaveformPeaks(audioBuffers, 2000);
+        const peaks = downsampleWaveformPeaks(waveformPeaks, 60);
+        const silence = detectSilenceBoundaries(audioBuffers);
+        self.postMessage({
+          id: message.id,
+          result: { duration, bpm, key, offset, waveformPeaks, peaks, silence }
+        });
+      } catch (error) {
+        self.postMessage({
+          id: message.id,
+          error: {
+            message: error && error.message ? error.message : String(error),
+            stack: error && error.stack ? error.stack : ''
+          }
+        });
+      }
+    };
+  `;
+}
+
+class SongAnalysisWorkerPool {
+  constructor(size) {
+    this.size = size;
+    this.nextJobId = 1;
+    this.pending = [];
+    this.workers = [];
+    this.destroyed = false;
+    this.pumpScheduled = false;
+    this.workerSource = buildSongAnalysisWorkerSource();
+    this.workerUrl = URL.createObjectURL(new Blob(
+      [this.workerSource],
+      { type: 'text/javascript' }
+    ));
+    for (let index = 0; index < size; index++) this.spawnWorker();
+  }
+
+  spawnWorker() {
+    if (this.destroyed) return;
+    const state = {
+      worker: new window.Worker(this.workerUrl),
+      busy: false,
+      currentJob: null,
+      failed: false
+    };
+    this.workers.push(state);
+
+    state.worker.onmessage = event => {
+      const message = event.data;
+      const job = state.currentJob;
+      if (!job || message.id !== job.id) return;
+      state.currentJob = null;
+      state.busy = false;
+      if (message.error) {
+        const error = new Error(message.error.message);
+        if (message.error.stack) error.stack = message.error.stack;
+        job.reject(error);
+      } else {
+        job.resolve(message.result);
+      }
+      this.schedulePump();
+    };
+
+    state.worker.onerror = event => {
+      event.preventDefault();
+      this.failWorker(
+        state,
+        new Error(event.message || 'Song analysis worker failed.')
+      );
+    };
+    this.schedulePump();
+  }
+
+  failWorker(state, error) {
+    if (state.failed) return;
+    state.failed = true;
+    const workerIndex = this.workers.indexOf(state);
+    if (workerIndex >= 0) this.workers.splice(workerIndex, 1);
+    if (state.currentJob) state.currentJob.reject(error);
+    state.currentJob = null;
+    state.busy = false;
+    state.worker.terminate();
+    if (!this.destroyed) this.spawnWorker();
+  }
+
+  analyze(audioBuffers) {
+    return new Promise((resolve, reject) => {
+      this.pending.push({
+        id: this.nextJobId++,
+        audioBuffers,
+        resolve,
+        reject
+      });
+      this.schedulePump();
+    });
+  }
+
+  async serializeAudioBuffers(audioBuffers) {
+    const transferList = [];
+    const buffers = [];
+    for (const audioBuffer of audioBuffers) {
+      const channels = [];
+      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+        const channelData = audioBuffer.getChannelData(channel);
+        channels.push(channelData);
+        transferList.push(channelData.buffer);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      buffers.push({
+        sampleRate: audioBuffer.sampleRate,
+        length: audioBuffer.length,
+        channels
+      });
+    }
+    return { buffers, transferList };
+  }
+
+  schedulePump() {
+    if (this.destroyed || this.pumpScheduled) return;
+    this.pumpScheduled = true;
+    setTimeout(() => {
+      this.pumpScheduled = false;
+      this.pump();
+    }, 0);
+  }
+
+  pump() {
+    if (this.destroyed) return;
+    const state = this.workers.find(workerState => !workerState.busy);
+    if (!state || this.pending.length === 0) return;
+    const job = this.pending.shift();
+    state.busy = true;
+    state.currentJob = job;
+    this.serializeAudioBuffers(job.audioBuffers)
+      .then(({ buffers, transferList }) => {
+        if (this.destroyed || state.currentJob !== job) return;
+        job.audioBuffers = null;
+        state.worker.postMessage({ id: job.id, buffers }, transferList);
+      })
+      .catch(error => {
+        state.currentJob = null;
+        state.busy = false;
+        job.reject(error);
+      })
+      .finally(() => this.schedulePump());
+  }
+
+  terminate() {
+    this.destroyed = true;
+    const error = new Error('Song analysis worker pool was terminated.');
+    for (const job of this.pending.splice(0)) job.reject(error);
+    for (const state of this.workers.splice(0)) {
+      if (state.currentJob) state.currentJob.reject(error);
+      state.worker.terminate();
+    }
+    URL.revokeObjectURL(this.workerUrl);
+  }
+}
+
+function getSongAnalysisWorkerPool() {
+  if (!songAnalysisWorkerPool) {
+    songAnalysisWorkerPool = new SongAnalysisWorkerPool(SONG_ANALYZER_WORKER_COUNT);
+    logConsole(
+      `NotoMixer Song Analyzer Daemon: ${SONG_ANALYZER_WORKER_COUNT} CPU workers ` +
+      `(${songAnalyzerLogicalCoreCount} logical cores detected)`,
+      'system'
+    );
+  }
+  return songAnalysisWorkerPool;
+}
+
+window.addEventListener('beforeunload', () => {
+  if (songAnalysisWorkerPool) songAnalysisWorkerPool.terminate();
+});
 
 function applyCenterSnap(param, newVal) {
   if (!snapEnabled) return newVal;
@@ -12920,7 +13192,7 @@ function applyPreviewFilters() {
   prevGainNode.gain.setValueAtTime(prevVolVal / 100, time);
 }
 
-function loadPreviewSong(dirPath, folderName) {
+async function loadPreviewSong(dirPath, folderName) {
   try {
     previewSongPath = dirPath;
     const previewPanel = document.getElementById('preview-panel');
@@ -12982,13 +13254,30 @@ function loadPreviewSong(dirPath, folderName) {
         mainFile = instFiles.pop();
       }
     }
+
+    const originalAudioPaths = [];
+    if (mainFile) originalAudioPaths.push(path.join(actualDirPath, mainFile));
+    if (vocalsFile) originalAudioPaths.push(path.join(actualDirPath, vocalsFile));
+    instFiles.forEach(file => originalAudioPaths.push(path.join(actualDirPath, file)));
+    if (originalAudioPaths.some(isM4aFile)) {
+      logConsole('M4A: Checking preview codec compatibility...', 'system');
+    }
+    const compatibleAudioPaths = await getCompatibleAudioPaths(originalAudioPaths);
+    if (previewSongPath !== dirPath) return;
+    if (originalAudioPaths.some(originalPath => compatibleAudioPaths.get(originalPath) !== originalPath)) {
+      logConsole('M4A: Lossless preview cache ready.', 'system');
+    }
+    const getPlayablePath = originalPath => (
+      compatibleAudioPaths.get(originalPath) || originalPath
+    );
     
     initPreviewAudio();
     
     // Load main stem
     const mainIndicator = document.getElementById('prev-ind-main');
     if (mainFile) {
-      const filePath = path.join(actualDirPath, mainFile);
+      const originalFilePath = path.join(actualDirPath, mainFile);
+      const filePath = getPlayablePath(originalFilePath);
       const data = fs.readFileSync(filePath);
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
@@ -13012,7 +13301,8 @@ function loadPreviewSong(dirPath, folderName) {
     // Load vocals stem
     const vocalsIndicator = document.getElementById('prev-ind-vocals');
     if (vocalsFile) {
-      const filePath = path.join(actualDirPath, vocalsFile);
+      const originalFilePath = path.join(actualDirPath, vocalsFile);
+      const filePath = getPlayablePath(originalFilePath);
       const data = fs.readFileSync(filePath);
       const mimeType = getMimeType(filePath);
       const blob = new Blob([data], { type: mimeType });
@@ -13037,7 +13327,8 @@ function loadPreviewSong(dirPath, folderName) {
     const instIndicator = document.getElementById('prev-ind-inst');
     if (instFiles.length > 0) {
       instFiles.forEach(file => {
-        const filePath = path.join(actualDirPath, file);
+        const originalFilePath = path.join(actualDirPath, file);
+        const filePath = getPlayablePath(originalFilePath);
         const data = fs.readFileSync(filePath);
         const mimeType = getMimeType(filePath);
         const blob = new Blob([data], { type: mimeType });
@@ -13152,24 +13443,13 @@ function generatePreviewStaticWaveform(dirPath, files) {
   
   if (pathsToDecode.length === 0) return;
   
-  const decodePromises = pathsToDecode.map(filePath => {
-    return new Promise((resolve) => {
-      try {
-        const data = fs.readFileSync(filePath);
-        const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-        initPreviewAudio();
-        previewAudioCtx.decodeAudioData(arrayBuffer)
-          .then(resolve)
-          .catch(err => {
-            console.warn(`Warning Preview Waveform: Unable to decode ${path.basename(filePath)}: ${err.message}`);
-            resolve(null);
-          });
-      } catch (err) {
-        console.warn(`Warning Preview Waveform: Unable to read ${path.basename(filePath)}: ${err.message}`);
-        resolve(null);
-      }
-    });
-  });
+  initPreviewAudio();
+  const decodePromises = pathsToDecode.map(filePath => (
+    decodeAudioFile(previewAudioCtx, filePath).catch(err => {
+      console.warn(`Warning Preview Waveform: Unable to decode ${path.basename(filePath)}: ${err.message}`);
+      return null;
+    })
+  ));
 
   Promise.all(decodePromises).then(buffers => {
     // Associate decoded buffers with preview stems for real-time scratching
@@ -14444,7 +14724,7 @@ function initInAppPreview() {
         cell.classList.remove('dragover');
       });
       
-      cell.addEventListener('drop', (e) => {
+      cell.addEventListener('drop', async (e) => {
         e.preventDefault();
         cell.classList.remove('dragover');
         
@@ -14460,24 +14740,18 @@ function initInAppPreview() {
           const audioExtensions = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a'];
           if (audioExtensions.includes(ext)) {
             try {
-              const fileData = fs.readFileSync(filePath);
-              const arrayBuffer = fileData.buffer.slice(
-                fileData.byteOffset,
-                fileData.byteOffset + fileData.byteLength
-              );
               initPreviewAudio();
-              previewAudioCtx.decodeAudioData(arrayBuffer, (audioBuffer) => {
-                stopPreviewSampleEffect(i);
-                previewSoundButtons[i].buffer = audioBuffer;
-                previewSoundButtons[i].path = filePath;
-                previewSoundButtons[i].name = fileName;
-                btn.textContent = fileName.toUpperCase();
-                btn.classList.remove('empty-sound-btn');
-                btn.classList.add('loaded');
-                btn.title = `${filePath} — right-click for effect settings; middle-click to stop`;
-              });
+              const audioBuffer = await decodeAudioFile(previewAudioCtx, filePath);
+              stopPreviewSampleEffect(i);
+              previewSoundButtons[i].buffer = audioBuffer;
+              previewSoundButtons[i].path = filePath;
+              previewSoundButtons[i].name = fileName;
+              btn.textContent = fileName.toUpperCase();
+              btn.classList.remove('empty-sound-btn');
+              btn.classList.add('loaded');
+              btn.title = `${filePath} — right-click for effect settings; middle-click to stop`;
             } catch (err) {
-              console.error(err);
+              logConsole(`Err: Failed to decode preview sample '${fileName}': ${err.message}`, 'err');
             }
           }
         }

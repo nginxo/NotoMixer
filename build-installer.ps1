@@ -23,6 +23,7 @@ $toolsRoot = Join-Path $projectRoot '.build-tools'
 $localInnoRoot = Join-Path $toolsRoot 'Inno Setup 7'
 $innoDownload = Join-Path $toolsRoot 'innosetup-7.0.2-x64.exe'
 $innoDownloadUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-7_0_2/innosetup-7.0.2-x64.exe'
+$ffmpegPrepareScript = Join-Path $projectRoot 'prepare-ffmpeg.ps1'
 
 function Write-Step {
     param([string]$Message)
@@ -208,6 +209,12 @@ if (-not $SkipDependencies) {
     }
 }
 
+Write-Step 'Preparazione del runtime audio M4A'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ffmpegPrepareScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Preparazione di FFmpeg terminata con codice $LASTEXITCODE."
+}
+
 Write-Step 'Generazione dell’icona Windows'
 New-PngIcon -Source $iconSource -Destination $iconOutput
 
@@ -258,12 +265,13 @@ $packagerArguments = @(
     '--arch=x64',
     "--out=$(Join-Path $distRoot 'app')",
     '--overwrite',
-    '--asar',
+    '--asar.unpack=**/{.**,**}/**/*.node',
+    '--asar.unpackDir=.runtime/ffmpeg',
     '--prune=true',
     "--app-version=$appVersion",
     "--icon=$iconOutput",
     '--ignore=^/(dist|installer|assets|settings|\.build-tools|\.git|\.cover_cache)($|/)',
-    '--ignore=^/(config\.notomixer|logo\.svg|logo\.png|desktopApp\.zip|notoMixer\.ino|build-installer\.ps1|INSTALLER\.md|avvia\.bat|\.gitignore)$'
+    '--ignore=^/(config\.notomixer|logo\.svg|logo\.png|desktopApp\.zip|notoMixer\.ino|build-installer\.ps1|prepare-ffmpeg\.ps1|INSTALLER\.md|avvia\.bat|\.gitignore)$'
 )
 
 & node.exe $packager @packagerArguments
@@ -296,6 +304,7 @@ $requiredEntries = @(
     '\index.html',
     '\splash.html',
     '\notomixer-config.js',
+    '\audio-compat.js',
     '\user-settings.js',
     '\tablet-controller\index.html'
 )
@@ -303,6 +312,20 @@ foreach ($entry in $requiredEntries) {
     if ($asarEntries -notcontains $entry) {
         throw "File richiesto assente da app.asar: $entry"
     }
+}
+
+$ffmpegPath = Join-Path $packagedAppRoot 'resources\app.asar.unpacked\.runtime\ffmpeg\bin\ffmpeg.exe'
+if (-not (Test-Path -LiteralPath $ffmpegPath)) {
+    throw "FFmpeg richiesto per i file M4A assente dal pacchetto: $ffmpegPath"
+}
+$ffprobePath = Join-Path $packagedAppRoot 'resources\app.asar.unpacked\.runtime\ffmpeg\bin\ffprobe.exe'
+if (-not (Test-Path -LiteralPath $ffprobePath)) {
+    throw "FFprobe richiesto per i file M4A assente dal pacchetto: $ffprobePath"
+}
+$ffmpegLicensePath = Join-Path $packagedAppRoot 'resources\app.asar.unpacked\.runtime\ffmpeg\LICENSE.txt'
+$ffmpegNoticePath = Join-Path $packagedAppRoot 'resources\app.asar.unpacked\.runtime\ffmpeg\NOTICE.txt'
+if (-not (Test-Path -LiteralPath $ffmpegLicensePath) -or -not (Test-Path -LiteralPath $ffmpegNoticePath)) {
+    throw 'Licenza o avviso FFmpeg assente dal pacchetto.'
 }
 
 $forbiddenPatterns = @(

@@ -5,10 +5,12 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:installer": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build-installer.ps1"
+    "build:installer": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build-installer.ps1",
+    "prepare:ffmpeg": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./prepare-ffmpeg.ps1",
+    "postinstall": "npm run prepare:ffmpeg"
   },
   "dependencies": {
-    "music-metadata": "^7.14.0",
+    "music-metadata": "^11.14.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -37,6 +37,7 @@ let availableAppUpdate = null;
 let downloadedUpdatePath = '';
 let updateCheckPromise = null;
 let updateDownloadPromise = null;
+let musicMetadataModulePromise = null;
 let tabletControllerState = {
   type: 'state',
   snap: {
@@ -58,6 +59,13 @@ let tabletControllerLibrary = {
   playlists: [],
   songs: []
 };
+
+function loadMusicMetadataModule() {
+  if (!musicMetadataModulePromise) {
+    musicMetadataModulePromise = import('music-metadata');
+  }
+  return musicMetadataModulePromise;
+}
 let tabletLibraryCoverPaths = new Map();
 const tabletCoverPaths = { 1: '', 2: '' };
 const tabletCoverVersions = { 1: 0, 2: 0 };
@@ -724,6 +732,21 @@ ipcMain.on('set-target-port', (event, portName) => {
 
 ipcMain.handle('tablet-controller:get-info', () => {
   return getTabletControllerInfo();
+});
+
+ipcMain.handle('audio-metadata:get-cover', async (_event, filePath) => {
+  if (typeof filePath !== 'string' || !filePath) return null;
+  const resolvedPath = path.resolve(filePath);
+  const stats = await fs.promises.stat(resolvedPath);
+  if (!stats.isFile()) return null;
+  const { parseFile } = await loadMusicMetadataModule();
+  const metadata = await parseFile(resolvedPath);
+  const picture = metadata.common.picture?.[0];
+  if (!picture?.data || picture.data.byteLength === 0) return null;
+  return {
+    format: picture.format || 'image/jpeg',
+    data: Uint8Array.from(picture.data)
+  };
 });
 
 ipcMain.on('tablet-controller:state', (event, nextState) => {
