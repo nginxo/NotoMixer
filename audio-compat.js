@@ -12,6 +12,8 @@ const CACHE_MAX_BYTES = Number.isFinite(configuredCacheMaxBytes) && configuredCa
   : 5 * 1024 * 1024 * 1024;
 const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const CONVERSION_TIMEOUT_MS = 5 * 60 * 1000;
+const ANALYSIS_DECODE_TIMEOUT_MS = 5 * 60 * 1000;
+const ANALYSIS_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
 const CACHE_DIRECTORY = process.env.NOTOMIXER_AUDIO_CACHE_DIRECTORY
   ? path.resolve(process.env.NOTOMIXER_AUDIO_CACHE_DIRECTORY)
   : path.join(os.tmpdir(), 'NotoMixer', 'audio-cache');
@@ -161,6 +163,92 @@ function runFfmpeg(inputPath, outputPath) {
   });
 }
 
+function decodeAudioForAnalysis(filePaths, sampleRate = 11025) {
+  const inputs = [...new Set(filePaths.map(filePath => path.resolve(filePath)))];
+  if (inputs.length === 0) {
+    return Promise.reject(new Error('No audio files were provided for analysis.'));
+  }
+
+  const safeSampleRate = Math.max(8000, Math.min(22050, Math.round(sampleRate)));
+  const args = ['-hide_banner', '-loglevel', 'error'];
+  inputs.forEach(inputPath => args.push('-i', inputPath));
+
+  if (inputs.length === 1) {
+    args.push('-map', '0:a:0');
+  } else {
+    const inputLabels = inputs.map((_, index) => `[${index}:a:0]`).join('');
+    args.push(
+      '-filter_complex',
+      `${inputLabels}amix=inputs=${inputs.length}:duration=longest:normalize=1[analysis]`,
+      '-map', '[analysis]'
+    );
+  }
+  args.push(
+    '-vn',
+    '-ac', '1',
+    '-ar', String(safeSampleRate),
+    '-c:a', 'pcm_f32le',
+    '-f', 'f32le',
+    'pipe:1'
+  );
+
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn(getFfmpegPath(), args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    try {
+      // Analysis is background work. Keep mixer/audio UI work ahead of FFmpeg
+      // when the user starts performing before the library scan completes.
+      os.setPriority(ffmpeg.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+    } catch (error) {}
+    const chunks = [];
+    let outputBytes = 0;
+    let stderr = '';
+    let settled = false;
+
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const timeout = setTimeout(() => {
+      ffmpeg.kill();
+      finish(new Error(`FFmpeg analysis timed out for ${path.basename(inputs[0])}.`));
+    }, ANALYSIS_DECODE_TIMEOUT_MS);
+
+    ffmpeg.stdout.on('data', chunk => {
+      outputBytes += chunk.length;
+      if (outputBytes > ANALYSIS_MAX_OUTPUT_BYTES) {
+        ffmpeg.kill();
+        finish(new Error(`Analysis output is too large for ${path.basename(inputs[0])}.`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    ffmpeg.stderr.on('data', chunk => {
+      if (stderr.length < 16000) stderr += chunk.toString();
+    });
+    ffmpeg.on('error', finish);
+    ffmpeg.on('close', code => {
+      if (settled) return;
+      if (code === 0 && outputBytes >= 4) {
+        finish(null, {
+          pcm: Buffer.concat(chunks, outputBytes),
+          sampleRate: safeSampleRate
+        });
+        return;
+      }
+      finish(new Error(
+        `FFmpeg could not prepare ${path.basename(inputs[0])} for analysis`
+        + (stderr.trim() ? `: ${stderr.trim()}` : ` (exit code ${code})`)
+      ));
+    });
+  });
+}
+
 async function pruneAudioCache(
   cacheDirectory,
   preservePath,
@@ -261,6 +349,7 @@ async function getCompatibleAudioPaths(filePaths) {
 }
 
 module.exports = {
+  decodeAudioForAnalysis,
   getCompatibleAudioPath,
   getCompatibleAudioPaths,
   getFfmpegPath,
