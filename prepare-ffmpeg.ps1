@@ -10,9 +10,9 @@ $ffprobePath = Join-Path $runtimeBin 'ffprobe.exe'
 $markerPath = Join-Path $runtimeRoot 'SOURCE.txt'
 $noticePath = Join-Path $runtimeRoot 'NOTICE.txt'
 $downloadsRoot = Join-Path $projectRoot '.build-tools\downloads'
-$assetName = 'ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1.zip'
-$assetUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-08-13-06/$assetName"
-$expectedSha256 = 'e3e281a23ac78fcbc3fe184f86eb2a80c67533fde9cda9177128b09ffd72cf97'
+$assetName = 'ffmpeg-n8.1.3-35-gf1acb0a266-win64-lgpl-shared-8.1.zip'
+$assetUrl = "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-13-12-43/$assetName"
+$expectedSha256 = '57cb10e4703b88edf55aa49e94dee19fd12f555f82ed3493a8cd70c847699996'
 $archivePath = Join-Path $downloadsRoot $assetName
 $sourceMarker = "$assetUrl`nSHA256: $expectedSha256"
 
