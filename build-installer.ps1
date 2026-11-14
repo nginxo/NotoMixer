@@ -270,7 +270,7 @@ $packagerArguments = @(
     '--prune=true',
     "--app-version=$appVersion",
     "--icon=$iconOutput",
-    '--ignore=^/(dist|installer|assets|settings|\.build-tools|\.git|\.cover_cache)($|/)',
+    '--ignore=^/(dist|installer|assets|settings|esp32-companion|\.build-tools|\.git|\.cover_cache)($|/)',
     '--ignore=^/(config\.notomixer|logo\.svg|logo\.png|desktopApp\.zip|notoMixer\.ino|build-installer\.ps1|prepare-ffmpeg\.ps1|INSTALLER\.md|avvia\.bat|\.gitignore)$'
 )
 
@@ -301,6 +301,7 @@ $requiredEntries = @(
     '\main.js',
     '\app-updater.js',
     '\renderer.js',
+    '\waveform.js',
     '\index.html',
     '\splash.html',
     '\notomixer-config.js',

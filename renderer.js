@@ -16,6 +16,7 @@ const {
   saveUserSettings
 } = require('./user-settings');
 const { version: packageVersion } = require('./package.json');
+const { analyzeWaveformBands, drawBands, drawBandOverview } = require('./waveform');
 
 const notoMixerRoot = process.env.NOTOMIXER_INSTALL_ROOT
   ? path.resolve(process.env.NOTOMIXER_INSTALL_ROOT)
@@ -2559,6 +2560,191 @@ function handleMidiMessage(event) {
 
 let tabletControllerConnectedClients = 0;
 let tabletControllerInfo = null;
+const esp32WaveformCache = new WeakMap();
+const esp32LayeredWaveformCache = new WeakMap();
+const esp32DetailedWaveformCache = new WeakMap();
+
+const uncoloredWaveforms = new WeakMap();
+function getUncoloredWaveform(peaks) {
+  let bands = uncoloredWaveforms.get(peaks);
+  if (!bands) {
+    bands = new Uint8Array(peaks.length * 3);
+    peaks.forEach((peak, index) => { bands[index * 3] = Math.round(255 * peak); });
+    uncoloredWaveforms.set(peaks, bands);
+  }
+  return bands;
+}
+
+function getEsp32Waveform(peaks, bands, version) {
+  if (version >= 3 && bands?.length) {
+    const detailed = version >= 5;
+    const cache = detailed ? esp32DetailedWaveformCache : esp32LayeredWaveformCache;
+    let packed = cache.get(bands);
+    if (packed) return packed;
+    const count = bands.length / 3;
+    const points = Math.min(detailed ? 6000 : 3000, count);
+    packed = Buffer.alloc(points * 2);
+    for (let index = 0; index < points; index++) {
+      const start = Math.floor(index * count / points);
+      const end = Math.floor((index + 1) * count / points);
+      let bass = 0;
+      let mid = 0;
+      let high = 0;
+      for (let sample = start; sample < end; sample++) {
+        bass = Math.max(bass, bands[sample * 3]);
+        mid = Math.max(mid, bands[sample * 3 + 1]);
+        high = Math.max(high, bands[sample * 3 + 2]);
+      }
+      const value = detailed
+        ? (Math.round(bass * 31 / 255) << 11) | (Math.round(mid * 63 / 255) << 5) | Math.round(high * 31 / 255)
+        : (Math.round(bass / 17) << 8) | (Math.round(mid / 17) << 4) | Math.round(high / 17);
+      packed.writeUInt16LE(value, index * 2);
+    }
+    cache.set(bands, packed);
+    return packed;
+  }
+  const colored = version === 2;
+  const source = colored && bands?.length ? bands : peaks;
+  if (!source?.length) return null;
+  let quantized = esp32WaveformCache.get(source);
+  if (!quantized) {
+    if (source === bands) {
+      const count = bands.length / 3;
+      quantized = Buffer.alloc(Math.min(2000, count));
+      for (let index = 0; index < quantized.length; index++) {
+        const start = Math.floor(index * count / quantized.length);
+        const end = Math.floor((index + 1) * count / quantized.length);
+        let peak = 0;
+        let color = 0;
+        for (let sample = start; sample < end; sample++) {
+          for (let band = 0; band < 3; band++) {
+            const value = bands[sample * 3 + band];
+            if (value > peak) {
+              peak = value;
+              color = band;
+            }
+          }
+        }
+        quantized[index] = (color << 6) | Math.round(peak * 63 / 255);
+      }
+      esp32WaveformCache.set(source, quantized);
+      return quantized;
+    }
+    const samples = peaks.length > 2000 ? downsampleWaveformPeaks(peaks, 2000) : peaks;
+    quantized = Buffer.from(Uint8Array.from(samples, peak => (
+      Math.round(Math.max(0, Math.min(1, peak)) * 255)
+    )));
+    esp32WaveformCache.set(source, quantized);
+  }
+  return quantized;
+}
+
+async function publishEsp32CompanionFrame() {
+  const connection = serialCompanion;
+  const writer = activeWriter;
+  const now = performance.now();
+  if (!connection || !writer || serialClosing || connection.writing || now < connection.nextWrite) return;
+
+  const audioElements = [1, 2].map(trackNum => (
+    getRefAudio(trackNum) || (tracks[trackNum].isSynth ? tracks[trackNum].fallbackAudio : null)
+  ));
+  const waveforms = audioElements.map((audio, index) => (
+    audio && !tracks[index + 1]._waveformLoading ? getEsp32Waveform(
+      tracks[index + 1].staticWaveform, tracks[index + 1].waveformBands, connection.version
+    ) : null
+  ));
+  const fullRequest = connection.fullRequest;
+  const full = connection.sentFullRequest !== fullRequest
+    || waveforms.some((peaks, index) => peaks !== connection.waveforms[index]);
+  const layered = connection.version >= 3;
+  const detailed = connection.version >= 5;
+  const stateSize = connection.version >= 2 ? 148 : 100;
+  const recordSize = full && !layered ? stateSize + 2000 : stateSize;
+  const resync = connection.sentFullRequest !== fullRequest;
+  const replaced = waveforms.map((peaks, index) => layered
+    && (resync || peaks !== connection.waveforms[index]));
+  const transmitted = [...waveforms];
+  const transmittedColors = waveforms.map((peaks, index) => Boolean(peaks && tracks[index + 1].waveformBands?.length));
+  if (detailed && replaced[0] && replaced[1] && waveforms[0] && waveforms[1]) {
+    // Keep each transfer short enough for the other deck to receive fresh position data.
+    transmitted[1] = resync ? null : connection.waveforms[1];
+    transmittedColors[1] = !resync && connection.colored[1];
+    replaced[1] = resync;
+  }
+  const payloadSize = replaced.reduce((sum, update, index) => sum + (update ? transmitted[index]?.length || 0 : 0), 0);
+  const frame = Buffer.alloc(4 + 2 * recordSize + payloadSize);
+  frame.write(layered ? 'NM05' : connection.version === 2 ? (full ? 'NM03' : 'NM04') : (full ? 'NM01' : 'NM02'), 0, 'ascii');
+  let payloadOffset = 4 + 2 * recordSize;
+  for (const trackNum of [1, 2]) {
+    const track = tracks[trackNum];
+    const audio = audioElements[trackNum - 1];
+    const offset = 4 + (trackNum - 1) * recordSize;
+    if (replaced[trackNum - 1]) frame[offset] |= 16;
+    if (!audio) continue;
+
+    const bpm = (Number(track.bpmVal) || 0) * (Number(track.speedVal) || 1);
+    const playing = track.isPlaying === true;
+    const rate = playing && !audio.paused && !trackScratchSessions.has(trackNum)
+      ? audio.playbackRate
+      : 0;
+    frame[offset] |= playing ? 0x03 : 0x01;
+    frame.writeFloatLE(Number.isFinite(audio.currentTime) ? audio.currentTime : 0, offset + 4);
+    frame.writeFloatLE(Number.isFinite(audio.duration) ? audio.duration : 0, offset + 8);
+    frame.writeFloatLE(rate, offset + 12);
+    frame.writeFloatLE(bpm, offset + 16);
+    const title = document.getElementById(`track-name-${trackNum}`)?.textContent || track.title || '';
+    frame.write(title.trim().replace(/[\x00-\x1f\x7f]/g, ' '), offset + 20, 79, 'utf8');
+
+    if (connection.version >= 2) {
+      if (transmittedColors[trackNum - 1]) frame[offset] |= 4;
+      if (track.loopEnabled && hasValidTrackLoopRange(track)) frame[offset] |= 8;
+      if (layered && shouldWarnMusicEnding(trackNum, audio)) frame[offset] |= 32;
+      if (layered && track._endSyncCountdownOwner != null) {
+        const sourceNum = track._endSyncCountdownOwner;
+        const source = tracks[sourceNum];
+        const sourceAudio = audioElements[sourceNum - 1];
+        const beat = ((sourceAudio?.currentTime ?? 0) - (source.beatOffset || 0))
+          * Math.max(20, source.bpmVal || 120) / 60;
+        if (connection.version >= 4 || beat - Math.floor(beat) < 0.30) frame[offset] |= 64;
+      }
+      frame.writeFloatLE(Number(track.bpmVal) || 0, offset + 100);
+      frame.writeFloatLE(Number(track.beatOffset) || 0, offset + 104);
+      frame.writeFloatLE(Number(track.loopStartTime) || 0, offset + 108);
+      frame.writeFloatLE(Number(track.loopEndTime) || 0, offset + 112);
+      for (let cue = 0; cue < 8; cue++) {
+        const time = track.hotCues?.[cue];
+        frame.writeFloatLE(Number.isFinite(time) && time >= 0 ? time : -1, offset + 116 + cue * 4);
+      }
+    }
+    const peaks = transmitted[trackNum - 1];
+    if (peaks) {
+      const layeredPeaks = layered && (frame[offset] & 4);
+      frame.writeUInt16LE(layeredPeaks ? peaks.length / 2 : peaks.length, offset + 2);
+      if (replaced[trackNum - 1]) {
+        peaks.copy(frame, payloadOffset);
+        payloadOffset += peaks.length;
+      } else if (full && !layered) peaks.copy(frame, offset + stateSize);
+    }
+  }
+  connection.writing = true;
+  try {
+    const line = Buffer.from(`\nNM-WAVEFORM:${frame.toString('base64')}\n`, 'ascii');
+    await writer.write(line);
+    if (full) {
+      connection.sentFullRequest = fullRequest;
+      connection.waveforms = transmitted;
+      connection.colored = transmittedColors;
+      connection.nextWrite = now + Math.ceil(line.length / 11.52);
+    }
+  } catch (error) {
+    if (serialCompanion === connection) {
+      serialCompanion = null;
+      logConsole(`Err: Companion serial write failed: ${error.message}`, 'err');
+    }
+  } finally {
+    connection.writing = false;
+  }
+}
 
 function buildTabletCueState(trackNum, cueIndex) {
   const track = tracks[trackNum];
@@ -2929,7 +3115,10 @@ function setupTabletControllerExtension() {
     }
   });
 
-  setInterval(() => publishTabletControllerState(), 100);
+  setInterval(() => {
+    publishTabletControllerState();
+    publishEsp32CompanionFrame();
+  }, 100);
   publishTabletControllerState(true);
   publishTabletSongLibrary();
 
@@ -4074,7 +4263,11 @@ let activePort = null;
 let handshakeInterval = null;
 let syncedParams = {};
 let activeWriter = null;
-let serialReaderLoop = null;
+let serialReader = null;
+let serialCompanion = null;
+let serialClosing = false;
+let serialOpening = false;
+let autoConnectEnabled = true;
 let esp32Ip = null;
 const esp32Port = 41234;
 
@@ -4579,33 +4772,38 @@ function getEffectiveTrackEnd(trackNum, refAudio = getRefAudio(trackNum)) {
   return fullDuration;
 }
 
-function updateMusicEndingWarning(trackNum) {
+function shouldWarnMusicEnding(trackNum, audio) {
   const track = tracks[trackNum];
-  const header = document.querySelector(`#track-${trackNum} .track-header`);
-  if (!header) return;
-
-  const refAudio = getRefAudio(trackNum);
-  const effectiveEnd = refAudio ? getEffectiveTrackEnd(trackNum, refAudio) : 0;
+  const effectiveEnd = audio ? getEffectiveTrackEnd(trackNum, audio) : 0;
   const playbackSpeed = Math.max(0.01, track.speedVal || 1);
-  const remainingSeconds = refAudio
-    ? (effectiveEnd - refAudio.currentTime) / playbackSpeed
+  const remainingSeconds = audio
+    ? (effectiveEnd - audio.currentTime) / playbackSpeed
     : Infinity;
-  const shouldWarn = musicEndingWarning
+  return musicEndingWarning
     && track.isPlaying
     && !track.isSynth
     && !track.loopEnabled
     && effectiveEnd > 0
     && remainingSeconds > 0
     && remainingSeconds <= 30;
+}
+
+function updateMusicEndingWarning(trackNum) {
+  const track = tracks[trackNum];
+  const header = document.querySelector(`#track-${trackNum} .track-header`);
+  if (!header) return;
+
+  const refAudio = getRefAudio(trackNum);
   const wasWarning = header.classList.contains('music-ending-warning-pulse');
 
-  if (!shouldWarn) {
+  if (!shouldWarnMusicEnding(trackNum, refAudio)) {
     header.classList.remove('music-ending-warning-pulse');
     header.style.removeProperty('--music-ending-warning-beat');
     header.style.removeProperty('--music-ending-warning-phase');
     return;
   }
 
+  const playbackSpeed = Math.max(0.01, track.speedVal || 1);
   const effectiveBpm = Math.max(20, (track.bpmVal || 120) * playbackSpeed);
   const beatDuration = Math.max(0.1, Math.min(3, 60 / effectiveBpm));
   const mediaBeatDuration = 60 / Math.max(20, track.bpmVal || 120);
@@ -5044,6 +5242,9 @@ function clearEndSyncFinalFlash(trackNum) {
   track._endSyncLastFlashBeat = null;
 
   [trackNum, trackNum === 1 ? 2 : 1].forEach(headerTrackNum => {
+    if (tracks[headerTrackNum]._endSyncCountdownOwner === trackNum) {
+      tracks[headerTrackNum]._endSyncCountdownOwner = null;
+    }
     const header = document.querySelector(`#track-${headerTrackNum} .track-header`);
     if (!header) return;
     if (header._endSyncBeatFlashOwner === trackNum) {
@@ -5107,20 +5308,21 @@ function flashEndSyncBeat(trackNum, otherNum, beatDuration, includeOutgoingTrack
   });
 }
 
-function updateEndSyncFinalFlash(trackNum, otherNum, refAudio, effectiveEnd) {
+function updateEndSyncFinalFlash(trackNum, otherNum, refAudio, secondsUntilStart) {
   const track = tracks[trackNum];
   if (notoMixerConfig.legacyMode) {
     clearEndSyncFinalFlash(trackNum);
     return;
   }
   const playbackSpeed = Math.max(0.01, track.speedVal || 1);
-  const remainingSeconds = (effectiveEnd - refAudio.currentTime) / playbackSpeed;
-
-  if (!track.endSyncRampStarted || remainingSeconds <= 0 || remainingSeconds > 5) {
+  const warningSeconds = Math.min(5, track.endSyncSeconds / playbackSpeed);
+  if (tracks[otherNum].isPlaying || tracks[otherNum]._playPending
+      || secondsUntilStart <= 0 || secondsUntilStart > warningSeconds) {
     clearEndSyncFinalFlash(trackNum);
     return;
   }
 
+  tracks[otherNum]._endSyncCountdownOwner = trackNum;
   const incomingHeader = document.querySelector(`#track-${otherNum} .track-header`);
   if (incomingHeader) {
     incomingHeader.classList.add('end-sync-incoming-pulse-ready');
@@ -5429,6 +5631,7 @@ function updateEndSync(trackNum) {
   const currentTime = refAudio.currentTime;
   const playbackSpeed = Math.max(0.01, track.speedVal || 1);
   const remainingSeconds = Math.max(0, (duration - currentTime) / playbackSpeed);
+  const secondsUntilStart = remainingSeconds - (track.endSyncMixEnabled ? track.endSyncMixSeconds : 0);
 
   if (track.endSyncMixEnabled) {
     if (track.endSyncFadeOutEnabled) {
@@ -5491,9 +5694,15 @@ function updateEndSync(trackNum) {
   // Seeking back out of the ES window cancels the current pass and restores
   // the exact speed that was active when the ramp began.
   if (currentTime < triggerTime) {
-    clearEndSyncFinalFlash(trackNum);
     if (track.endSyncRampStarted) {
       resetEndSyncRamp(trackNum, true);
+    }
+    updateEndSyncFinalFlash(trackNum, otherNum, refAudio, secondsUntilStart);
+    if (track.endSyncMixEnabled && secondsUntilStart > 0
+        && secondsUntilStart <= Math.min(5, track.endSyncSeconds / playbackSpeed)) {
+      startEndSyncTimer(trackNum);
+    } else {
+      clearEndSyncTimer(trackNum);
     }
     return;
   }
@@ -5522,7 +5731,9 @@ function updateEndSync(trackNum) {
     });
   }
 
-  updateEndSyncFinalFlash(trackNum, otherNum, refAudio, duration);
+  const adjustedSecondsUntilStart = (duration - currentTime) / Math.max(0.01, track.speedVal || 1)
+    - (track.endSyncMixEnabled ? track.endSyncMixSeconds : 0);
+  updateEndSyncFinalFlash(trackNum, otherNum, refAudio, adjustedSecondsUntilStart);
   startEndSyncTimer(trackNum);
 }
 
@@ -6928,16 +7139,16 @@ async function persistTappedBpmToSong(songPath, baseBpm, sourceLabel) {
   return true;
 }
 
-function setBPM(trackNum, val) {
+function setBPM(trackNum, val, { sourceTempo = false } = {}) {
   const track = tracks[trackNum];
   val = Math.max(20, Math.min(300, val));
   
-  // The value is the effective BPM; set the base BPM accordingly
+  // Manual input is effective BPM. Analysis measures the unpitched file.
   const speed = track.speedVal || 1.0;
-  track.bpmVal = val / speed;
+  track.bpmVal = sourceTempo ? val : val / speed;
   
   const input = document.getElementById(`bpm-${trackNum}`);
-  if (input) input.value = val;
+  if (input) input.value = sourceTempo ? Math.round(val * speed) : val;
   
   if (track.metronomeOn) {
     startMetronome(trackNum);
@@ -7037,6 +7248,8 @@ function startSynthDemo(trackNum) {
     track.synthTimer = null;
   }
   
+  track.waveformBands = null;
+  track._waveformLoading = false;
   track.isSynth = true;
   document.getElementById(`track-name-${trackNum}`).textContent = `TEST AUDIO ${trackNum}`;
   document.getElementById(`time-duration-${trackNum}`).textContent = '--:--';
@@ -8282,11 +8495,18 @@ function reverseAudioBuffer(buffer, audioCtx) {
 // -------------------------------------------------------------
 
 async function loadDirectoryStems(trackNum, dirPath) {
+  const track = tracks[trackNum];
+  const directoryLoadToken = (track._directoryLoadToken || 0) + 1;
+  track._directoryLoadToken = directoryLoadToken;
   try {
-    const track = tracks[trackNum];
-    const directoryLoadToken = (track._directoryLoadToken || 0) + 1;
-    track._directoryLoadToken = directoryLoadToken;
     stopTrack(trackNum); // Force stop channel
+    track.staticWaveform = null;
+    track.waveformBands = null;
+    track._waveformRevealPending = false;
+    track._waveformLoading = true;
+    for (const id of [`overview-canvas-${trackNum}`, `canvas-${trackNum}`, `beatmatch-canvas-${trackNum}`]) {
+      clearWaveformCanvas(document.getElementById(id));
+    }
     clearEndSyncCueAssignmentsForTarget(trackNum);
     clearTrackHotCues(trackNum);
     
@@ -8361,6 +8581,7 @@ async function loadDirectoryStems(trackNum, dirPath) {
     if (originalAudioPaths.some(isM4aFile)) {
       logConsole(`M4A: Checking codec compatibility for Track ${trackNum}...`, 'system');
     }
+    void publishEsp32CompanionFrame();
     const compatibleAudioPaths = await getCompatibleAudioPaths(originalAudioPaths);
     if (track._directoryLoadToken !== directoryLoadToken) return;
     const convertedM4aCount = originalAudioPaths.filter(
@@ -8379,7 +8600,6 @@ async function loadDirectoryStems(trackNum, dirPath) {
     // Load main stem (main.mp3)
     const mainIndicator = document.getElementById(`ind-main-${trackNum}`);
     const mainCell = document.getElementById(`cell-main-${trackNum}`);
-    track.staticWaveform = null; // Clear old static waveform
     if (mainFile) {
       const originalFilePath = path.join(actualDirPath, mainFile);
       const filePath = getPlayablePath(originalFilePath);
@@ -8532,12 +8752,12 @@ async function loadDirectoryStems(trackNum, dirPath) {
     prepareTrackMediaReadiness(trackNum);
 
     // Generate combined static waveform for all loaded stems
-    track.staticWaveform = null; // Clear old waveform
     const pathsToDecode = [];
     if (mainFile) pathsToDecode.push(path.join(actualDirPath, mainFile));
     if (vocalsFile) pathsToDecode.push(path.join(actualDirPath, vocalsFile));
     instFiles.forEach(file => pathsToDecode.push(path.join(actualDirPath, file)));
 
+    if (pathsToDecode.length === 0) track._waveformLoading = false;
     if (pathsToDecode.length > 0) {
       const verifiedAnalysis = verifiedSongAnalysis.get(getSongAnalysisKey(pathsToDecode[0]));
       if (verifiedAnalysis) {
@@ -8557,6 +8777,7 @@ async function loadDirectoryStems(trackNum, dirPath) {
       ));
 
       Promise.all(decodePromises).then(buffers => {
+        if (track._directoryLoadToken !== directoryLoadToken) return;
         // Associate decoded buffers with stems for real-time scratching
         let bufIdx = 0;
         if (mainFile && buffers[bufIdx]) {
@@ -8581,7 +8802,10 @@ async function loadDirectoryStems(trackNum, dirPath) {
         });
 
         const audioBuffers = buffers.filter(buf => buf !== null);
-        if (audioBuffers.length === 0) return;
+        if (audioBuffers.length === 0) {
+          track._waveformLoading = false;
+          return;
+        }
 
         const silenceBounds = detectSilenceBoundaries(audioBuffers);
         track.silenceStartTime = silenceBounds.start;
@@ -8629,7 +8853,7 @@ async function loadDirectoryStems(trackNum, dirPath) {
           }
           
           track.beatOffset = detectedOffset;
-          setBPM(trackNum, detectedBpm);
+          setBPM(trackNum, detectedBpm, { sourceTempo: true });
         } catch (bpmErr) {
           console.error("BPM analysis error:", bpmErr);
         }
@@ -8664,9 +8888,20 @@ async function loadDirectoryStems(trackNum, dirPath) {
 
         const maxVal = Math.max(...peaks);
         track.staticWaveform = Array.from(peaks).map(p => p / (maxVal || 1));
-        if (!verifiedAnalysis) animateTrackWaveform(trackNum);
+        getSongAnalysisWorkerPool().analyze(audioBuffers, true).then(({ waveformBands }) => {
+          if (track._directoryLoadToken === directoryLoadToken && !track.isSynth) {
+            track.waveformBands = waveformBands;
+          }
+        }).catch(error => console.warn('Waveform band analysis failed:', error)).finally(() => {
+          if (track._directoryLoadToken === directoryLoadToken && !track.isSynth) {
+            track._waveformLoading = false;
+            track._waveformRevealPending = true;
+            void publishEsp32CompanionFrame();
+          }
+        });
         logConsole(`Waveform: Track ${trackNum} decoded successfully (${audioBuffers.length} stems combined).`, 'system');
       }).catch(err => {
+        if (track._directoryLoadToken === directoryLoadToken) track._waveformLoading = false;
         logConsole(`Err Waveform: Combined decode failed on Track ${trackNum}: ${err.message}`, 'err');
       });
     }
@@ -8709,6 +8944,7 @@ async function loadDirectoryStems(trackNum, dirPath) {
     updateEndSyncMissingTargetAlert(trackNum, true);
     updateEndSyncMissingTargetAlert(trackNum === 1 ? 2 : 1, true);
   } catch (err) {
+    if (track._directoryLoadToken === directoryLoadToken) track._waveformLoading = false;
     logConsole(`Err: Folder load failed: ${err.message}`, 'err');
   }
 }
@@ -8872,25 +9108,27 @@ function releaseInitialSongAnalyzerGate() {
   closeSongAnalyzerDaemon(generation, 0, true);
 }
 
-function animateTrackWaveform(trackNum) {
-  const canvases = [
-    document.getElementById(`overview-canvas-${trackNum}`),
-    document.getElementById(`canvas-${trackNum}`)
-  ].filter(Boolean);
+function clearWaveformCanvas(canvas) {
+  if (!canvas) return;
+  canvas.classList.remove('waveform-reveal');
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.resetTransform();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+}
 
-  if (notoMixerConfig.legacyMode) {
-    canvases.forEach(canvas => canvas.classList.remove('waveform-reveal'));
-    return;
-  }
-
-  canvases.forEach(canvas => {
-    canvas.classList.remove('waveform-reveal');
+function animateTrackWaveform(canvases) {
+  if (notoMixerConfig.legacyMode) return;
+  for (const canvas of canvases) {
     void canvas.offsetWidth;
     canvas.classList.add('waveform-reveal');
-    canvas.addEventListener('animationend', () => {
-      canvas.classList.remove('waveform-reveal');
-    }, { once: true });
-  });
+    canvas.onanimationend = event => {
+      if (event.animationName === 'waveform-pop-reveal') {
+        canvas.classList.remove('waveform-reveal');
+      }
+    };
+  }
 }
 
 const NOTOMIXER_STEM_FILE_NAMES = new Set([
@@ -10017,17 +10255,18 @@ function applySongAnalysisToExplorer(meta, keyElement, bpmElement, durElement, w
 function applySongAnalysisToTrack(trackNum, meta) {
   const track = tracks[trackNum];
   if (!track || !meta) return;
+  const needsReveal = !track.staticWaveform?.length;
   updateTrackPlatterCover(trackNum, meta.cover || '');
   track.staticWaveform = Array.isArray(meta.waveformPeaks) ? meta.waveformPeaks.slice() : null;
   track.beatOffset = meta.offset || 0;
   track.silenceStartTime = meta.silenceStart || 0;
   track.silenceEndTime = Number.isFinite(meta.silenceEnd) ? meta.silenceEnd : meta.duration;
   track.silenceAnalysisReady = true;
-  setBPM(trackNum, meta.bpm || 120);
+  setBPM(trackNum, meta.bpm || 120, { sourceTempo: true });
 
   const durationElement = document.getElementById(`time-duration-${trackNum}`);
   if (durationElement) durationElement.textContent = formatTime(meta.duration);
-  if (track.staticWaveform && track.staticWaveform.length > 0) animateTrackWaveform(trackNum);
+  if (needsReveal && track.staticWaveform?.length) track._waveformRevealPending = true;
 }
 
 function hydrateLoadedTracksFromAnalysis(meta) {
@@ -10954,6 +11193,7 @@ function buildSongAnalysisWorkerSource() {
     ${estimateBPM.toString()}
     ${estimateBeatOffset.toString()}
     ${generateCombinedWaveformPeaks.toString()}
+    ${analyzeWaveformBands.toString()}
     ${downsampleWaveformPeaks.toString()}
     ${detectSilenceBoundaries.toString()}
 
@@ -10973,6 +11213,11 @@ function buildSongAnalysisWorkerSource() {
       const message = event.data;
       try {
         const audioBuffers = message.buffers.map(restoreAudioBuffer);
+        if (message.bandsOnly) {
+          const waveformBands = analyzeWaveformBands(audioBuffers);
+          self.postMessage({ id: message.id, result: { waveformBands } }, [waveformBands.buffer]);
+          return;
+        }
         const mainBuffer = audioBuffers[0];
         const duration = Math.max(...audioBuffers.map(buffer => buffer.duration));
         const bpm = estimateBPM(mainBuffer);
@@ -11062,11 +11307,12 @@ class SongAnalysisWorkerPool {
     if (!this.destroyed) this.spawnWorker();
   }
 
-  analyze(audioBuffers) {
+  analyze(audioBuffers, bandsOnly = false) {
     return new Promise((resolve, reject) => {
       this.pending.push({
         id: this.nextJobId++,
         audioBuffers,
+        bandsOnly,
         resolve,
         reject
       });
@@ -11074,13 +11320,14 @@ class SongAnalysisWorkerPool {
     });
   }
 
-  async serializeAudioBuffers(audioBuffers) {
+  async serializeAudioBuffers(audioBuffers, preserveBuffers) {
     const transferList = [];
     const buffers = [];
     for (const audioBuffer of audioBuffers) {
       const channels = [];
       for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-        const channelData = audioBuffer.getChannelData(channel);
+        const audioData = audioBuffer.getChannelData(channel);
+        const channelData = preserveBuffers ? audioData.slice() : audioData;
         channels.push(channelData);
         transferList.push(channelData.buffer);
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -11110,11 +11357,11 @@ class SongAnalysisWorkerPool {
     const job = this.pending.shift();
     state.busy = true;
     state.currentJob = job;
-    this.serializeAudioBuffers(job.audioBuffers)
+    this.serializeAudioBuffers(job.audioBuffers, job.bandsOnly)
       .then(({ buffers, transferList }) => {
         if (this.destroyed || state.currentJob !== job) return;
         job.audioBuffers = null;
-        state.worker.postMessage({ id: job.id, buffers }, transferList);
+        state.worker.postMessage({ id: job.id, buffers, bandsOnly: job.bandsOnly }, transferList);
       })
       .catch(error => {
         state.currentJob = null;
@@ -11181,24 +11428,31 @@ function applyCenterSnap(param, newVal) {
   return newVal;
 }
 
-async function handleDeviceLost() {
-  logConsole('Warning: Device has been lost (unplugged).', 'err');
-  
-  if (serialReaderLoop) {
-    try { await serialReaderLoop.cancel(); } catch(e){}
-    serialReaderLoop = null;
-  }
-  
-  if (activeWriter) {
-    try { activeWriter.releaseLock(); } catch(e){}
-    activeWriter = null;
-  }
-  
-  if (activePort) {
-    try { await activePort.close(); } catch(e){}
+async function closeSerialPort(notifyDevice = false) {
+  if (!activePort || serialClosing) return;
+  serialClosing = true;
+  clearInterval(handshakeInterval);
+  handshakeInterval = null;
+  serialCompanion = null;
+  const port = activePort;
+  if (notifyDevice) await sendSerialMessage('CONN:0');
+  try {
+    if (serialReader) await serialReader.cancel();
+  } catch {}
+  if (activeWriter) activeWriter.releaseLock();
+  activeWriter = null;
+  try {
+    await port.close();
+  } finally {
     activePort = null;
+    serialClosing = false;
   }
-  
+}
+
+async function handleDeviceLost() {
+  if (!activePort || serialClosing) return;
+  logConsole('Warning: Device has been lost (unplugged).', 'err');
+  try { await closeSerialPort(); } catch {}
   setConnectedStatus(false);
   showConnectionModal();
 }
@@ -11208,8 +11462,9 @@ let autoConnectInterval = null;
 function startAutoConnectScanner() {
   if (autoConnectInterval) return;
   autoConnectInterval = setInterval(async () => {
-    if (activePort) return; // Already connected
+    if (activePort || serialOpening || serialClosing || !autoConnectEnabled) return;
     if (navigator.serial) {
+      serialOpening = true;
       try {
         const ports = await navigator.serial.getPorts();
         if (ports.length > 0) {
@@ -11239,12 +11494,17 @@ function startAutoConnectScanner() {
         }
       } catch (err) {
         // Silently skip if port cannot be opened (e.g., unplugged or locked)
+      } finally {
+        serialOpening = false;
       }
     }
   }, 1000);
 }
 
 async function scanPorts() {
+  if (activePort || serialOpening || serialClosing) return;
+  autoConnectEnabled = true;
+  serialOpening = true;
   logConsole('Info: Scanning and automatically connecting serial ports...', 'system');
   ipcRenderer.send('set-target-port', '');
   
@@ -11273,6 +11533,8 @@ async function scanPorts() {
     }
   } catch (err) {
     logConsole(`Info: No serial port found or connection failed: ${err.message}`, 'system');
+  } finally {
+    serialOpening = false;
   }
 }
 
@@ -11298,31 +11560,17 @@ ipcRenderer.on('serial-ports-list', (event, portList) => {
 async function toggleConnection() {
   const select = document.getElementById('port-select');
   const portName = select.value;
+  if (serialOpening || serialClosing) return;
 
   if (activePort) {
+    autoConnectEnabled = false;
     logConsole('Info: Serial disconnect...', 'system');
     try {
-      await sendSerialMessage('CONN:0');
-      
-      if (serialReaderLoop) {
-        await serialReaderLoop.cancel();
-        serialReaderLoop = null;
-      }
-      
-      if (activeWriter) {
-        activeWriter.releaseLock();
-        activeWriter = null;
-      }
-      
-      await activePort.close();
-      activePort = null;
-      
-      setConnectedStatus(false);
+      await closeSerialPort(true);
       logConsole('Success: Disconnected from ESP32.', 'system');
     } catch (err) {
       logConsole(`Err: Disconnect failed: ${err.message}`, 'err');
-      activePort = null;
-      activeWriter = null;
+    } finally {
       setConnectedStatus(false);
     }
   } else {
@@ -11334,6 +11582,8 @@ async function toggleConnection() {
     logConsole(`Info: Connecting to ${portName}...`, 'system');
     ipcRenderer.send('set-target-port', portName);
     
+    autoConnectEnabled = true;
+    serialOpening = true;
     try {
       const port = await navigator.serial.requestPort();
       await port.open({ baudRate: 115200 });
@@ -11350,6 +11600,8 @@ async function toggleConnection() {
       maybeShowEvaluationNotice();
     } catch (err) {
       logConsole(`Err: Serial connection failed: ${err.message}`, 'err');
+    } finally {
+      serialOpening = false;
     }
   }
 }
@@ -11415,8 +11667,6 @@ async function initSerialHandshake() {
   }
 
   // Send CONN:1 immediately
-  await sendSerialMessage('CONN:1');
-
   let attempts = 1;
   handshakeInterval = setInterval(async () => {
     if (activePort && attempts < 5) {
@@ -11427,6 +11677,7 @@ async function initSerialHandshake() {
       handshakeInterval = null;
     }
   }, 1000);
+  await sendSerialMessage('CONN:1');
 }
 
 // -------------------------------------------------------------
@@ -11465,9 +11716,9 @@ async function sendSerialMessage(msg) {
 }
 
 async function startReading(port) {
-  const textDecoder = new TextDecoderStream();
-  serialReaderLoop = port.readable.pipeTo(textDecoder.writable);
-  const reader = textDecoder.readable.getReader();
+  const decoder = new TextDecoder();
+  const reader = port.readable.getReader();
+  serialReader = reader;
   
   let buffer = '';
   
@@ -11476,7 +11727,7 @@ async function startReading(port) {
       const { value, done } = await reader.read();
       if (done) break;
       if (value) {
-        buffer += value;
+        buffer += decoder.decode(value, { stream: true });
         let newlineIndex;
         while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
           const line = buffer.slice(0, newlineIndex).trim();
@@ -11489,11 +11740,10 @@ async function startReading(port) {
     }
   } catch (err) {
     logConsole(`Err: Serial read error: ${err.message}`, 'err');
-    if (activePort) {
-      handleDeviceLost();
-    }
   } finally {
     reader.releaseLock();
+    if (serialReader === reader) serialReader = null;
+    if (activePort === port && !serialClosing) handleDeviceLost();
   }
 }
 
@@ -11504,6 +11754,27 @@ function parseIncomingMessage(msg) {
     clearInterval(handshakeInterval);
     handshakeInterval = null;
     logConsole("Info: ESP32 synchronization completed successfully!", "system");
+  }
+
+  if (/^NM-COMPANION:[12345]$/.test(msg)) {
+    const version = Number(msg.at(-1));
+    if (activeWriter && !serialClosing) {
+      if (serialCompanion?.version === version) {
+        serialCompanion.fullRequest += 1;
+      } else {
+        serialCompanion = {
+          version,
+          waveforms: [null, null],
+          colored: [false, false],
+          fullRequest: 1,
+          sentFullRequest: 0,
+          nextWrite: 0,
+          writing: false
+        };
+        logConsole(`Info: NotoMixer Companion v${version} connected over USB.`, 'system');
+      }
+    }
+    return;
   }
   
   const parts = msg.split(':');
@@ -11714,11 +11985,117 @@ function sendManualCommand() {
 // Real-time Canvas Rendering (exertia Solid Green Style)
 // -------------------------------------------------------------
 
+const WAVEFORM_VISIBLE_SECONDS = 30;
+const BEATS_PER_BAR = 4;
+const DOWNBEAT_COLOR = '#ff667d';
+
+function drawBeatGrid(ctx, {
+  width, height, currentTime, duration, bpm, offset, pixelsPerSecond,
+  beatColor = 'rgba(255, 255, 255, 0.24)', showNumbers = false
+}) {
+  if (!Number.isFinite(bpm) || bpm <= 0
+      || !Number.isFinite(pixelsPerSecond) || pixelsPerSecond <= 0) return;
+
+  const beatDuration = 60 / bpm;
+  const halfWindow = width / 2 / pixelsPerSecond;
+  const left = Math.max(0, currentTime - halfWindow);
+  const right = Math.min(duration, currentTime + halfWindow);
+  const first = Math.max(0, Math.ceil((left - offset) / beatDuration));
+  const last = Math.floor((right - offset) / beatDuration);
+  const beatSpacing = beatDuration * pixelsPerSecond;
+  let previousLabelRight = 0;
+
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  for (let beat = first; beat <= last; beat++) {
+    const x = Math.floor(width / 2 + (offset + beat * beatDuration - currentTime) * pixelsPerSecond);
+    const downbeat = beat % BEATS_PER_BAR === 0;
+    ctx.fillStyle = downbeat ? DOWNBEAT_COLOR : beatColor;
+    const tickTop = downbeat ? 0 : showNumbers ? Math.min(height, 16) : Math.floor(height / 2);
+    ctx.fillRect(x, tickTop, downbeat ? 2 : 1, height - tickTop);
+
+    if (!showNumbers) continue;
+    if (downbeat) {
+      const label = String(beat / BEATS_PER_BAR + 1);
+      ctx.font = 'bold 12px monospace';
+      const labelWidth = Math.ceil(ctx.measureText(label).width) + 6;
+      const labelX = x + 3;
+      if (labelX >= previousLabelRight + 2 && labelX + labelWidth <= width
+          && labelWidth + 3 < BEATS_PER_BAR * beatSpacing) {
+        ctx.fillStyle = '#151319';
+        ctx.fillRect(labelX, 1, labelWidth, 15);
+        ctx.fillStyle = DOWNBEAT_COLOR;
+        ctx.fillText(label, labelX + 3, 2);
+        previousLabelRight = labelX + labelWidth;
+      }
+    } else if (beatSpacing >= 14 && height >= 32) {
+      ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.fillText((beat % BEATS_PER_BAR) + 1, x + 3, height - 11);
+    }
+  }
+  ctx.restore();
+}
+
+function drawBeatmatchStrip(canvas, ctx, trackNum, audio, otherAudio) {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height) return;
+
+  const pixelRatio = window.devicePixelRatio || 1;
+  const pixelWidth = Math.round(width * pixelRatio);
+  const pixelHeight = Math.round(height * pixelRatio);
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+  ctx.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const otherNum = trackNum === 1 ? 2 : 1;
+  const rowHeight = Math.floor(height / 2);
+  // Both rows use the same elapsed-time scale, covering four bars of this deck.
+  const effectiveBpm = tracks[trackNum].bpmVal * audio.playbackRate;
+  const pixelsPerSecond = width * effectiveBpm / (60 * BEATS_PER_BAR * 4);
+  const rows = [[trackNum, audio], [otherNum, otherAudio]];
+
+  ctx.fillStyle = '#343434';
+  ctx.fillRect(0, rowHeight, width, 1);
+  rows.forEach(([num, media], index) => {
+    const track = tracks[num];
+    const color = num === 1 ? '#00ffcc' : '#ff854a';
+    ctx.save();
+    ctx.translate(0, index * rowHeight);
+    drawBeatGrid(ctx, {
+      width, height: rowHeight - 1, currentTime: media.currentTime,
+      duration: media.duration, bpm: track.bpmVal, offset: track.beatOffset || 0,
+      pixelsPerSecond: pixelsPerSecond / media.playbackRate, beatColor: color
+    });
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(0, 0, 17, rowHeight - 1);
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(num, 8, rowHeight / 2);
+    ctx.restore();
+  });
+
+  ctx.fillStyle = '#f1f1f6';
+  ctx.fillRect(Math.floor(width / 2), 0, 1, height);
+}
+
 function startVisualizers() {
   [1, 2].forEach(trackNum => {
     const canvas = document.getElementById(`canvas-${trackNum}`);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    const overviewCanvas = document.getElementById(`overview-canvas-${trackNum}`);
+    const beatmatchCanvas = document.getElementById(`beatmatch-canvas-${trackNum}`);
+    const beatmatchCtx = beatmatchCanvas.getContext('2d');
+    const visualizerBlock = beatmatchCanvas.parentElement;
+    const track = tracks[trackNum];
+    const otherNum = trackNum === 1 ? 2 : 1;
+    const otherTrack = tracks[otherNum];
     
     function resizeCanvas() {
       canvas.width = canvas.clientWidth;
@@ -11727,12 +12104,23 @@ function startVisualizers() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     
-    const track = tracks[trackNum];
-    
     function draw() {
       requestAnimationFrame(draw);
       
       try {
+        const mode = track.visMode || 'waveform';
+        const audio = getRefAudio(trackNum);
+        const otherAudio = getRefAudio(otherNum);
+        const showBeatmatch = mode === 'waveform'
+          && !!track.staticWaveform?.length && !!otherTrack.staticWaveform?.length
+          && Number.isFinite(audio?.duration) && Number.isFinite(otherAudio?.duration)
+          && audio.duration > 0 && otherAudio.duration > 0;
+        if (beatmatchCanvas.hidden === showBeatmatch) {
+          beatmatchCanvas.hidden = !showBeatmatch;
+          visualizerBlock.classList.toggle('has-beatmatch', showBeatmatch);
+        }
+        overviewCanvas.style.display = mode === 'waveform' ? 'block' : 'none';
+
         if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
           canvas.width = canvas.clientWidth;
           canvas.height = canvas.clientHeight;
@@ -11744,17 +12132,7 @@ function startVisualizers() {
 
         const trackColor = (trackNum === 1) ? '#00ffcc' : '#ff5500';
 
-        // Hide or show the overview canvas
-        const overviewCanvas = document.getElementById(`overview-canvas-${trackNum}`);
-        if (overviewCanvas) {
-          overviewCanvas.style.display = (track.visMode === 'waveform') ? 'block' : 'none';
-        }
-        
-        let refAudio = null;
-        if (track.stems.main.exists) refAudio = track.stems.main.audio;
-        else if (track.stems.vocals.exists) refAudio = track.stems.vocals.audio;
-        else if (track.stems.inst.audios.length > 0) refAudio = track.stems.inst.audios[0].audio;
-        else if (track.isSynth && track.fallbackAudio) refAudio = track.fallbackAudio;
+        const refAudio = audio || (track.isSynth ? track.fallbackAudio : null);
 
         updateTrackPlatterPosition(
           trackNum,
@@ -11764,100 +12142,20 @@ function startVisualizers() {
         const duration = (refAudio && refAudio.duration && !isNaN(refAudio.duration) && refAudio.duration > 0) ? refAudio.duration : 180;
 
         // Draw Overview Waveform if available and in waveform mode
-        if (overviewCanvas && track.visMode === 'waveform' && track.staticWaveform && track.staticWaveform.length > 0) {
+        if (overviewCanvas && track.visMode === 'waveform' && !track._waveformLoading && track.staticWaveform?.length) {
           const oCtx = overviewCanvas.getContext('2d');
-          const oW = overviewCanvas.width = overviewCanvas.clientWidth;
-          const oH = overviewCanvas.height = overviewCanvas.clientHeight;
+          const oW = overviewCanvas.clientWidth;
+          const oH = overviewCanvas.clientHeight;
+          if (overviewCanvas.width !== oW) overviewCanvas.width = oW;
+          if (overviewCanvas.height !== oH) overviewCanvas.height = oH;
           
           if (oW > 0 && oH > 0) {
             oCtx.fillStyle = '#0d0d0d';
             oCtx.fillRect(0, 0, oW, oH);
             
-            // Draw continuous Audacity-style waveform for overview (unplayed grey base with gradient)
-            const unplayedGrad = oCtx.createLinearGradient(0, oH * 0.1, 0, oH * 0.9);
-            unplayedGrad.addColorStop(0, '#2a2a2a');
-            unplayedGrad.addColorStop(0.5, '#5c5c5c');
-            unplayedGrad.addColorStop(1, '#2a2a2a');
-            oCtx.fillStyle = unplayedGrad;
-            
-            oCtx.beginPath();
-            let first = true;
-            const step = oW / track.staticWaveform.length;
-            for (let i = 0; i < track.staticWaveform.length; i++) {
-              const peak = track.staticWaveform[i];
-              const h = Math.max(1, peak * oH * 0.85);
-              const y = (oH - h) / 2;
-              const x = i * step;
-              if (first) {
-                oCtx.moveTo(x, y);
-                first = false;
-              } else {
-                oCtx.lineTo(x, y);
-              }
-            }
-            for (let i = track.staticWaveform.length - 1; i >= 0; i--) {
-              const peak = track.staticWaveform[i];
-              const h = Math.max(1, peak * oH * 0.85);
-              const y = (oH + h) / 2;
-              const x = i * step;
-              oCtx.lineTo(x, y);
-            }
-            oCtx.closePath();
-            oCtx.fill();
-            
-            // Fill the played portion in gradient color
-            let currentPct = 0;
-            if (refAudio) {
-              currentPct = refAudio.currentTime / duration;
-            }
-            const playedX = Math.max(0, Math.min(oW, currentPct * oW));
-            
-            oCtx.save();
-            oCtx.beginPath();
-            oCtx.rect(0, 0, playedX, oH);
-            oCtx.clip();
-            
-            const playedGrad = oCtx.createLinearGradient(0, oH * 0.1, 0, oH * 0.9);
-            if (track._waveformResetGraySettled) {
-              playedGrad.addColorStop(0, '#2a2a2a');
-              playedGrad.addColorStop(0.5, '#5c5c5c');
-              playedGrad.addColorStop(1, '#2a2a2a');
-            } else if (trackNum === 1) {
-              playedGrad.addColorStop(0, '#00b38f');
-              playedGrad.addColorStop(0.5, '#b3fff0');
-              playedGrad.addColorStop(1, '#00b38f');
-            } else {
-              playedGrad.addColorStop(0, '#cc4400');
-              playedGrad.addColorStop(0.5, '#ffccb3');
-              playedGrad.addColorStop(1, '#cc4400');
-            }
-            oCtx.fillStyle = playedGrad;
-            
-            oCtx.beginPath();
-            first = true;
-            for (let i = 0; i < track.staticWaveform.length; i++) {
-              const peak = track.staticWaveform[i];
-              const h = Math.max(1, peak * oH * 0.85);
-              const y = (oH - h) / 2;
-              const x = i * step;
-              if (first) {
-                oCtx.moveTo(x, y);
-                first = false;
-              } else {
-                oCtx.lineTo(x, y);
-              }
-            }
-            for (let i = track.staticWaveform.length - 1; i >= 0; i--) {
-              const peak = track.staticWaveform[i];
-              const h = Math.max(1, peak * oH * 0.85);
-              const y = (oH + h) / 2;
-              const x = i * step;
-              oCtx.lineTo(x, y);
-            }
-            oCtx.closePath();
-            oCtx.fill();
-            oCtx.restore();
-            
+            const playedX = oW * (refAudio && refAudio.duration > 0 ? refAudio.currentTime / refAudio.duration : 0);
+            drawBandOverview(oCtx, track.waveformBands || getUncoloredWaveform(track.staticWaveform), oW, oH, playedX);
+
             // Draw moving vertical playhead indicator (red line)
             oCtx.strokeStyle = '#ff003c';
             oCtx.lineWidth = 1.5;
@@ -11971,7 +12269,7 @@ function startVisualizers() {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
         
-        const mode = track.visMode || 'waveform';
+        if (showBeatmatch) drawBeatmatchStrip(beatmatchCanvas, beatmatchCtx, trackNum, audio, otherAudio);
         
         let refAnalyser = null;
         if (track.analyser && track.isPlaying) {
@@ -12035,7 +12333,7 @@ function startVisualizers() {
           }
         } else if (mode === 'waveform') {
           // SCROLLING AUDIO WAVEFORM (Audacity Smooth Style)
-          if (track.staticWaveform && track.staticWaveform.length > 0) {
+          if (!track._waveformLoading && track.staticWaveform?.length) {
             let currentPct = 0;
             if (refAudio) {
               currentPct = refAudio.currentTime / duration;
@@ -12060,75 +12358,11 @@ function startVisualizers() {
               ctx.stroke();
             }
             
-            const visibleSeconds = 30; // Zoomed out as requested
-            const zoomPercent = (visibleSeconds / 2) / duration;
+            const zoomPercent = (WAVEFORM_VISIBLE_SECONDS / 2) / duration;
             
-            // Draw smooth Audacity-style waveform (Top and Bottom curves filled with gradient)
-            function drawContinuousWaveform(startPixel, endPixel, colorType) {
-              const grad = ctx.createLinearGradient(0, height * 0.075, 0, height * 0.925);
-              if (colorType === 'played') {
-                if (trackNum === 1) {
-                  grad.addColorStop(0, '#00b38f');
-                  grad.addColorStop(0.5, '#b3fff0');
-                  grad.addColorStop(1, '#00b38f');
-                } else {
-                  grad.addColorStop(0, '#cc4400');
-                  grad.addColorStop(0.5, '#ffccb3');
-                  grad.addColorStop(1, '#cc4400');
-                }
-              } else {
-                grad.addColorStop(0, '#2e2e2e');
-                grad.addColorStop(0.5, '#5c5c5c');
-                grad.addColorStop(1, '#2e2e2e');
-              }
+            drawBands(ctx, track.waveformBands || getUncoloredWaveform(track.staticWaveform), width, height,
+              currentPct - zoomPercent, zoomPercent * 2, width / 2);
 
-              ctx.fillStyle = grad;
-              ctx.beginPath();
-              
-              let first = true;
-              // Top half
-              for (let pixelX = startPixel; pixelX <= endPixel; pixelX += 2) {
-                const pct = currentPct + ((pixelX - width / 2) / (width / 2)) * zoomPercent;
-                if (pct >= 0 && pct <= 1) {
-                  const waveformIndex = Math.floor(pct * track.staticWaveform.length);
-                  const peak = track.staticWaveform[waveformIndex] || 0;
-                  const h = Math.max(1, peak * height * 0.85);
-                  const y = (height - h) / 2;
-                  if (first) {
-                    ctx.moveTo(pixelX, y);
-                    first = false;
-                  } else {
-                    ctx.lineTo(pixelX, y);
-                  }
-                }
-              }
-              
-              // Bottom half
-              for (let pixelX = endPixel; pixelX >= startPixel; pixelX -= 2) {
-                const pct = currentPct + ((pixelX - width / 2) / (width / 2)) * zoomPercent;
-                if (pct >= 0 && pct <= 1) {
-                  const waveformIndex = Math.floor(pct * track.staticWaveform.length);
-                  const peak = track.staticWaveform[waveformIndex] || 0;
-                  const h = Math.max(1, peak * height * 0.85);
-                  const y = (height + h) / 2;
-                  ctx.lineTo(pixelX, y);
-                }
-              }
-              
-              ctx.closePath();
-              ctx.fill();
-            }
-            
-            // Draw played section (left of center playhead)
-            drawContinuousWaveform(
-              0,
-              width / 2,
-              track._waveformResetGraySettled ? 'unplayed' : 'played'
-            );
-            
-            // Draw unplayed section (right of center playhead)
-            drawContinuousWaveform(width / 2, width, 'unplayed');
-            
             // Draw horizontal center line on top of the scrolling waveform (Audacity style)
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
             ctx.lineWidth = 1;
@@ -12137,48 +12371,11 @@ function startVisualizers() {
             ctx.lineTo(width, height / 2);
             ctx.stroke();
 
-            // Draw Rekordbox-style beat grid lines
-            const beatDuration = 60 / track.bpmVal;
-            const offset = track.beatOffset || 0;
-            const leftTime = (currentPct - zoomPercent) * duration;
-            const rightTime = (currentPct + zoomPercent) * duration;
-            
-            const firstVisibleBeat = Math.ceil((leftTime - offset) / beatDuration);
-            const lastVisibleBeat = Math.floor((rightTime - offset) / beatDuration);
-            
-            for (let n = Math.max(0, firstVisibleBeat); n <= lastVisibleBeat; n++) {
-              const beatTime = offset + n * beatDuration;
-              const beatPct = beatTime / duration;
-              const beatX = width / 2 + ((beatPct - currentPct) / zoomPercent) * (width / 2);
-              
-              if (n % 4 === 0) {
-                // Downbeat (Red/orange line with bar number)
-                ctx.strokeStyle = 'rgba(255, 0, 60, 0.45)';
-                ctx.lineWidth = 1.2;
-                ctx.beginPath();
-                ctx.moveTo(beatX, 0);
-                ctx.lineTo(beatX, height);
-                ctx.stroke();
-                
-                ctx.fillStyle = 'rgba(255, 0, 60, 0.7)';
-                ctx.font = '8px monospace';
-                ctx.textAlign = 'left';
-                ctx.fillText(Math.floor(n / 4) + 1, beatX + 3, 10);
-              } else {
-                // Offbeat (White/grey line)
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-                ctx.lineWidth = 0.8;
-                ctx.beginPath();
-                ctx.moveTo(beatX, 0);
-                ctx.lineTo(beatX, height);
-                ctx.stroke();
-                
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-                ctx.font = '8px monospace';
-                ctx.textAlign = 'left';
-                ctx.fillText((n % 4) + 1, beatX + 3, height - 4);
-              }
-            }
+            drawBeatGrid(ctx, {
+              width, height, currentTime: currentPct * duration, duration,
+              bpm: track.bpmVal, offset: track.beatOffset || 0,
+              pixelsPerSecond: width / WAVEFORM_VISIBLE_SECONDS, showNumbers: true
+            });
 
             // Draw fixed center playhead (Red line with Rekordbox triangles)
             ctx.strokeStyle = '#ff003c';
@@ -12287,11 +12484,16 @@ function startVisualizers() {
                 }
               }
             }
+            if (track._waveformRevealPending) {
+              track._waveformRevealPending = false;
+              animateTrackWaveform([overviewCanvas, canvas]);
+            }
           } else {
             ctx.fillStyle = '#666';
             ctx.font = '12px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText("NO AUDIO FILE LOADED", width / 2, height / 2 + 3);
+            ctx.fillText(track._waveformLoading ? "ANALYZING WAVEFORM" : "NO AUDIO FILE LOADED",
+              width / 2, height / 2 + 3);
           }
         }
 
@@ -13031,6 +13233,8 @@ let prevAutoLoopBeats = 4;
 
 // Combined Static Waveform for Preview
 let previewStaticWaveform = null;
+let previewWaveformBands = null;
+let previewWaveformGeneration = 0;
 
 // Audio Nodes for Preview
 let prevBassFilter = null;
@@ -13437,6 +13641,11 @@ function applyPreviewFilters() {
 
 async function loadPreviewSong(dirPath, folderName) {
   try {
+    const generation = ++previewWaveformGeneration;
+    previewStaticWaveform = null;
+    previewWaveformBands = null;
+    clearWaveformCanvas(document.getElementById('prev-overview-canvas'));
+    clearWaveformCanvas(document.getElementById('prev-canvas'));
     previewSongPath = dirPath;
     const previewPanel = document.getElementById('preview-panel');
     
@@ -13668,7 +13877,9 @@ async function loadPreviewSong(dirPath, folderName) {
     if (mainFile) previewPaths.push(mainFile);
     if (vocalsFile) previewPaths.push(vocalsFile);
     instFiles.forEach(f => previewPaths.push(f));
-    generatePreviewStaticWaveform(actualDirPath, previewPaths);
+    if (generation === previewWaveformGeneration) {
+      generatePreviewStaticWaveform(actualDirPath, previewPaths, generation);
+    }
     
     setTimeout(() => {
       playPreviewTrack();
@@ -13679,8 +13890,7 @@ async function loadPreviewSong(dirPath, folderName) {
   }
 }
 
-function generatePreviewStaticWaveform(dirPath, files) {
-  previewStaticWaveform = null;
+function generatePreviewStaticWaveform(dirPath, files, generation) {
   const pathsToDecode = [];
   files.forEach(file => pathsToDecode.push(path.join(dirPath, file)));
   
@@ -13695,6 +13905,7 @@ function generatePreviewStaticWaveform(dirPath, files) {
   ));
 
   Promise.all(decodePromises).then(buffers => {
+    if (generation !== previewWaveformGeneration) return;
     // Associate decoded buffers with preview stems for real-time scratching
     let bufIdx = 0;
     files.forEach(file => {
@@ -13763,6 +13974,9 @@ function generatePreviewStaticWaveform(dirPath, files) {
 
     const maxVal = Math.max(...peaks);
     previewStaticWaveform = Array.from(peaks).map(p => p / (maxVal || 1));
+    getSongAnalysisWorkerPool().analyze(audioBuffers, true).then(({ waveformBands }) => {
+      if (generation === previewWaveformGeneration) previewWaveformBands = waveformBands;
+    }).catch(error => console.warn('Preview band analysis failed:', error));
   }).catch(err => {
     console.error("Preview Waveform decode failed:", err);
   });
@@ -14082,93 +14296,22 @@ function drawPrevVisualizer() {
       const trackColor = '#ff5500'; // Orange theme for preview inside app
     
     // Draw Preview Overview Waveform if available and visible
-    if (overviewCanvas && previewVisMode === 'waveform' && previewStaticWaveform && previewStaticWaveform.length > 0) {
+    if (overviewCanvas && previewVisMode === 'waveform' && previewStaticWaveform?.length) {
+      const refAudio = previewStems.main.exists ? previewStems.main.audio
+        : previewStems.vocals.exists ? previewStems.vocals.audio
+          : previewStems.inst.audios[0]?.audio;
       const oCtx = overviewCanvas.getContext('2d');
-      const oW = overviewCanvas.width = overviewCanvas.clientWidth;
-      const oH = overviewCanvas.height = overviewCanvas.clientHeight;
+      const oW = overviewCanvas.clientWidth;
+      const oH = overviewCanvas.clientHeight;
+      if (overviewCanvas.width !== oW) overviewCanvas.width = oW;
+      if (overviewCanvas.height !== oH) overviewCanvas.height = oH;
       
       oCtx.fillStyle = '#0d0d0d';
       oCtx.fillRect(0, 0, oW, oH);
       
-      // Draw continuous Audacity-style waveform for overview (unplayed grey base with gradient)
-      const unplayedGrad = oCtx.createLinearGradient(0, oH * 0.1, 0, oH * 0.9);
-      unplayedGrad.addColorStop(0, '#2a2a2a');
-      unplayedGrad.addColorStop(0.5, '#5c5c5c');
-      unplayedGrad.addColorStop(1, '#2a2a2a');
-      oCtx.fillStyle = unplayedGrad;
-      
-      oCtx.beginPath();
-      let first = true;
-      const step = oW / previewStaticWaveform.length;
-      for (let i = 0; i < previewStaticWaveform.length; i++) {
-        const peak = previewStaticWaveform[i];
-        const h = Math.max(1, peak * oH * 0.85);
-        const y = (oH - h) / 2;
-        const x = i * step;
-        if (first) {
-          oCtx.moveTo(x, y);
-          first = false;
-        } else {
-          oCtx.lineTo(x, y);
-        }
-      }
-      for (let i = previewStaticWaveform.length - 1; i >= 0; i--) {
-        const peak = previewStaticWaveform[i];
-        const h = Math.max(1, peak * oH * 0.85);
-        const y = (oH + h) / 2;
-        const x = i * step;
-        oCtx.lineTo(x, y);
-      }
-      oCtx.closePath();
-      oCtx.fill();
-      
-      // Fill the played portion in gradient color
-      let currentPct = 0;
-      let refAudio = null;
-      if (previewStems.main.exists) refAudio = previewStems.main.audio;
-      else if (previewStems.vocals.exists) refAudio = previewStems.vocals.audio;
-      else if (previewStems.inst.audios.length > 0) refAudio = previewStems.inst.audios[0].audio;
-      if (refAudio) {
-        currentPct = refAudio.currentTime / (refAudio.duration || 1);
-      }
-      const playedX = currentPct * oW;
-      
-      oCtx.save();
-      oCtx.beginPath();
-      oCtx.rect(0, 0, playedX, oH);
-      oCtx.clip();
-      
-      const playedGrad = oCtx.createLinearGradient(0, oH * 0.1, 0, oH * 0.9);
-      playedGrad.addColorStop(0, '#cc4400');
-      playedGrad.addColorStop(0.5, '#ffccb3');
-      playedGrad.addColorStop(1, '#cc4400');
-      oCtx.fillStyle = playedGrad;
-      
-      oCtx.beginPath();
-      first = true;
-      for (let i = 0; i < previewStaticWaveform.length; i++) {
-        const peak = previewStaticWaveform[i];
-        const h = Math.max(1, peak * oH * 0.85);
-        const y = (oH - h) / 2;
-        const x = i * step;
-        if (first) {
-          oCtx.moveTo(x, y);
-          first = false;
-        } else {
-          oCtx.lineTo(x, y);
-        }
-      }
-      for (let i = previewStaticWaveform.length - 1; i >= 0; i--) {
-        const peak = previewStaticWaveform[i];
-        const h = Math.max(1, peak * oH * 0.85);
-        const y = (oH + h) / 2;
-        const x = i * step;
-        oCtx.lineTo(x, y);
-      }
-      oCtx.closePath();
-      oCtx.fill();
-      oCtx.restore();
-      
+      const playedX = oW * (refAudio && refAudio.duration > 0 ? refAudio.currentTime / refAudio.duration : 0);
+      drawBandOverview(oCtx, previewWaveformBands || getUncoloredWaveform(previewStaticWaveform), oW, oH, playedX);
+
       // Draw moving vertical playhead indicator (red line)
       oCtx.strokeStyle = '#ff003c';
       oCtx.lineWidth = 1.5;
@@ -14327,65 +14470,11 @@ function drawPrevVisualizer() {
         }
         
         const duration = (refAudio && refAudio.duration) ? refAudio.duration : 180;
-        const visibleSeconds = 30; // Zoomed out as requested
-        const zoomPercent = (visibleSeconds / 2) / duration;
+        const zoomPercent = (WAVEFORM_VISIBLE_SECONDS / 2) / duration;
         
-        // Draw smooth Audacity-style waveform for preview (Top/Bottom curves filled with gradient)
-        function drawContinuousWaveform(startPixel, endPixel, colorType) {
-          const grad = ctx.createLinearGradient(0, height * 0.075, 0, height * 0.925);
-          if (colorType === 'played') {
-            grad.addColorStop(0, '#cc4400');
-            grad.addColorStop(0.5, '#ffccb3');
-            grad.addColorStop(1, '#cc4400');
-          } else {
-            grad.addColorStop(0, '#2e2e2e');
-            grad.addColorStop(0.5, '#5c5c5c');
-            grad.addColorStop(1, '#2e2e2e');
-          }
+        drawBands(ctx, previewWaveformBands || getUncoloredWaveform(previewStaticWaveform), width, height,
+          currentPct - zoomPercent, zoomPercent * 2, width / 2);
 
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          
-          let first = true;
-          // Top half
-          for (let pixelX = startPixel; pixelX <= endPixel; pixelX += 2) {
-            const pct = currentPct + ((pixelX - width / 2) / (width / 2)) * zoomPercent;
-            if (pct >= 0 && pct <= 1) {
-              const waveformIndex = Math.floor(pct * previewStaticWaveform.length);
-              const peak = previewStaticWaveform[waveformIndex] || 0;
-              const h = Math.max(1, peak * height * 0.85);
-              const y = (height - h) / 2;
-              if (first) {
-                ctx.moveTo(pixelX, y);
-                first = false;
-              } else {
-                ctx.lineTo(pixelX, y);
-              }
-            }
-          }
-          
-          // Bottom half
-          for (let pixelX = endPixel; pixelX >= startPixel; pixelX -= 2) {
-            const pct = currentPct + ((pixelX - width / 2) / (width / 2)) * zoomPercent;
-            if (pct >= 0 && pct <= 1) {
-              const waveformIndex = Math.floor(pct * previewStaticWaveform.length);
-              const peak = previewStaticWaveform[waveformIndex] || 0;
-              const h = Math.max(1, peak * height * 0.85);
-              const y = (height + h) / 2;
-              ctx.lineTo(pixelX, y);
-            }
-          }
-          
-          ctx.closePath();
-          ctx.fill();
-        }
-        
-        // Draw played section (left of center playhead)
-        drawContinuousWaveform(0, width / 2, 'played');
-        
-        // Draw unplayed section (right of center playhead)
-        drawContinuousWaveform(width / 2, width, 'unplayed');
-        
         // Draw horizontal center line on top of the scrolling waveform (Audacity style)
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.lineWidth = 1;
@@ -14394,48 +14483,11 @@ function drawPrevVisualizer() {
         ctx.lineTo(width, height / 2);
         ctx.stroke();
 
-        // Draw Rekordbox-style beat grid lines for Preview
-        const beatDuration = 60 / prevBpmVal;
-        const offset = prevBeatOffset || 0;
-        const leftTime = (currentPct - zoomPercent) * duration;
-        const rightTime = (currentPct + zoomPercent) * duration;
-        
-        const firstVisibleBeat = Math.ceil((leftTime - offset) / beatDuration);
-        const lastVisibleBeat = Math.floor((rightTime - offset) / beatDuration);
-        
-        for (let n = Math.max(0, firstVisibleBeat); n <= lastVisibleBeat; n++) {
-          const beatTime = offset + n * beatDuration;
-          const beatPct = beatTime / duration;
-          const beatX = width / 2 + ((beatPct - currentPct) / zoomPercent) * (width / 2);
-          
-          if (n % 4 === 0) {
-            // Downbeat (Red/orange line with bar number)
-            ctx.strokeStyle = 'rgba(255, 0, 60, 0.45)';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(beatX, 0);
-            ctx.lineTo(beatX, height);
-            ctx.stroke();
-            
-            ctx.fillStyle = 'rgba(255, 0, 60, 0.7)';
-            ctx.font = '8px monospace';
-            ctx.textAlign = 'left';
-            ctx.fillText(Math.floor(n / 4) + 1, beatX + 3, 10);
-          } else {
-            // Offbeat (White/grey line)
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.moveTo(beatX, 0);
-            ctx.lineTo(beatX, height);
-            ctx.stroke();
-            
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.font = '8px monospace';
-            ctx.textAlign = 'left';
-            ctx.fillText((n % 4) + 1, beatX + 3, height - 4);
-          }
-        }
+        drawBeatGrid(ctx, {
+          width, height, currentTime: currentPct * duration, duration,
+          bpm: prevBpmVal, offset: prevBeatOffset || 0,
+          pixelsPerSecond: width / WAVEFORM_VISIBLE_SECONDS, showNumbers: true
+        });
 
         // Center playhead (Red line with Rekordbox triangles)
         ctx.strokeStyle = '#ff003c';
@@ -15112,8 +15164,7 @@ function setupCanvasScratching(trackNum, canvas) {
     scratchSources = [];
     
     const width = canvas.width;
-    const visibleSeconds = 30;
-    const pixelsPerSecond = width / visibleSeconds;
+    const pixelsPerSecond = width / WAVEFORM_VISIBLE_SECONDS;
     let audioPlayheadTime = startTime;
 
     // Start unified physics animation loop
@@ -15344,8 +15395,7 @@ function setupPreviewCanvasScratching(canvas) {
     scratchSources = [];
     
     const width = canvas.width;
-    const visibleSeconds = 30;
-    const pixelsPerSecond = width / visibleSeconds;
+    const pixelsPerSecond = width / WAVEFORM_VISIBLE_SECONDS;
     let audioPlayheadTime = startTime;
 
     function scratchLoop() {
