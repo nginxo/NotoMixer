@@ -91,7 +91,7 @@ async function build() {
     const ffmpegExe = path.join(ffmpegBin, 'ffmpeg');
     const ffprobeExe = path.join(ffmpegBin, 'ffprobe');
     for (const file of [path.join(app, 'Contents', 'MacOS', appName), ffmpegExe, ffprobeExe]) {
-      run('lipo', ['-verify_arch', machoArch, file]);
+      run('lipo', [file, '-verify_arch', machoArch]);
     }
     const testAudio = path.join(staging, 'test.m4a');
     run(ffmpegExe, ['-v', 'error', '-f', 'lavfi', '-i', 'anullsrc', '-t', '0.1', '-c:a', 'alac', testAudio]);
