@@ -50,13 +50,10 @@ jobs:
       - name: Verify mixer startup
         if: matrix.arch == 'arm64'
         run: |
-          binary=/Applications/NotoMixer.app/Contents/MacOS/NotoMixer
-          log="$RUNNER_TEMP/notomixer-startup.log"
-          "$binary" --remote-debugging-port=9222 >"$log" 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          app=/Applications/NotoMixer.app
+          open -n "$app" --args --remote-debugging-port=9222
+          trap 'pkill -x NotoMixer || true' EXIT
           for attempt in {1..30}; do
-            if ! kill -0 "$pid" 2>/dev/null; then break; fi
             if curl -fsS --max-time 2 http://127.0.0.1:9222/json/list 2>/dev/null | node -e '
               const assert = require("node:assert/strict");
               const pages = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
@@ -70,7 +67,7 @@ jobs:
             fi
             sleep 1
           done
-          cat "$log"
+          log show --last 2m --predicate 'process == "NotoMixer"' --style compact
           exit 1
       - uses: actions/upload-artifact@v4
         with:

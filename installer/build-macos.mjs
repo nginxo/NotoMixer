@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,7 @@ const appName = 'NotoMixer';
 const bundleId = 'com.exertia.notomixer';
 const outputDir = path.join(root, 'dist', 'installer-mac');
 const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+const buildVersion = version.replace(/\.(\d+)$/, (_, patch) => `.${Number(patch) + 1}`);
 const arch = process.argv[2] || process.arch;
 const appIdentity = process.env.NOTOMIXER_MAC_APP_IDENTITY;
 const installerIdentity = process.env.NOTOMIXER_MAC_INSTALLER_IDENTITY;
@@ -69,6 +70,7 @@ async function build() {
       arch,
       out: staging,
       appVersion: version,
+      buildVersion,
       appBundleId: bundleId,
       icon: await makeIcon(staging),
       asar: true,
@@ -81,7 +83,13 @@ async function build() {
       ],
       osxSign: appIdentity
         ? { identity: appIdentity }
-        : { identity: '-', identityValidation: false, preAutoEntitlements: false, hardenedRuntime: false, timestamp: 'none' }
+        : {
+          identity: '-',
+          identityValidation: false,
+          preAutoEntitlements: false,
+          // These settings apply to each executable, including Electron helpers and FFmpeg.
+          optionsForFile: () => ({ hardenedRuntime: false, timestamp: 'none' })
+        }
     });
     const app = path.join(appDir, `${appName}.app`);
     run('codesign', ['--verify', '--deep', '--strict', app]);
@@ -92,6 +100,13 @@ async function build() {
     const ffprobeExe = path.join(ffmpegBin, 'ffprobe');
     for (const file of [path.join(app, 'Contents', 'MacOS', appName), ffmpegExe, ffprobeExe]) {
       run('lipo', [file, '-verify_arch', machoArch]);
+    }
+    if (!appIdentity) {
+      // codesign prints signature details to stderr, including on success.
+      const signature = spawnSync('codesign', ['--display', '--verbose=4', app], { encoding: 'utf8' });
+      if (signature.status !== 0 || !/flags=0x[0-9a-f]+\(adhoc\)/i.test(signature.stderr)) {
+        throw new Error(`Unexpected macOS ad-hoc signing flags:\n${signature.stderr}`);
+      }
     }
     const testAudio = path.join(staging, 'test.m4a');
     run(ffmpegExe, ['-v', 'error', '-f', 'lavfi', '-i', 'anullsrc', '-t', '0.1', '-c:a', 'alac', testAudio]);
