@@ -62,7 +62,7 @@ NotoMixer invia i picchi quando la companion si identifica o quando cambiano. In
 
 | Offset nel record | Campo |
 | --- | --- |
-| 0 | Flag. Bit 0 brano caricato, bit 1 riproduzione, bit 2 picchi a tre bande, bit 3 loop attivo, bit 4 sostituzione dei picchi, bit 5 avviso di fine brano, bit 6 conto alla rovescia EndSync attivo sulla deck entrante |
+| 0 | Flag. Bit 0 brano caricato, bit 1 riproduzione, bit 2 picchi a tre bande, bit 3 loop attivo, bit 4 sostituzione dei picchi, bit 5 avviso di fine brano, bit 6 conto alla rovescia EndSync sulla deck entrante, bit 7 transizione EndSync in corso sulla deck uscente |
 | 1 | Riservato |
 | 2 | Numero di picchi, uint16 da 0 a 6000 |
 | 4, 8, 12, 16 | Posizione in secondi, durata in secondi, velocità di avanzamento, BPM. Quattro float32 |

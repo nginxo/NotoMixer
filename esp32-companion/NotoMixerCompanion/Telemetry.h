@@ -16,6 +16,7 @@ struct Deck {
   bool looping;
   bool endingWarning;
   bool endSyncCountdown;
+  bool endSyncActive;
   uint16_t peakCount;
   float position;
   float duration;
@@ -71,6 +72,7 @@ inline bool decodeFrame(const uint8_t* data, size_t size, bool haveFullFrame, Sn
     deck.looping = deck.loaded && (record[0] & 8) != 0;
     deck.endingWarning = deck.playing && (record[0] & 32) != 0;
     deck.endSyncCountdown = deck.loaded && (record[0] & 64) != 0;
+    deck.endSyncActive = deck.playing && (record[0] & 128) != 0;
     deck.peakCount = counts[i];
     deck.position = max(0.0f, readWireFloat(record + 4));
     deck.duration = max(0.0f, readWireFloat(record + 8));

@@ -2806,6 +2806,8 @@ async function publishEsp32CompanionFrame() {
       if (transmittedColors[trackNum - 1]) frame[offset] |= 4;
       if (track.loopEnabled && hasValidTrackLoopRange(track)) frame[offset] |= 8;
       if (layered && shouldWarnMusicEnding(trackNum, audio)) frame[offset] |= 32;
+      if (layered && playing && track.endSyncEnabled
+          && (track.endSyncRampStarted || track.endSyncMixStarted)) frame[offset] |= 128;
       if (layered && track._endSyncCountdownOwner != null) {
         const sourceNum = track._endSyncCountdownOwner;
         const source = tracks[sourceNum];

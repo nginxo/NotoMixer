@@ -32,7 +32,7 @@ constexpr int OverviewHeight = 19;
 constexpr float DrawHz = 40.0f;
 constexpr int DeckHeaderHeight = 28;
 constexpr int HeaderRightWidth = 196;
-constexpr int TransportIconWidth = 24;
+constexpr int TransportIconWidth = 27;
 constexpr uint32_t PlayFadePeriodMs = 1400;
 constexpr int ShimmerRadius = 72;
 constexpr uint32_t ShimmerPeriodMs = 1500;
@@ -267,8 +267,9 @@ void drawBrowser(const BrowserPage& page, bool reset) {
 
 void drawDeckHeader(int i, int y, const Deck& deck, bool pulse) {
   constexpr int titleStart = 37;
+  constexpr int titleRightPadding = 10;
   const int center = y + DeckHeaderHeight / 2;
-  const int textWidth = deckWidth - titleStart - HeaderRightWidth;
+  const int textWidth = deckWidth - titleStart - HeaderRightWidth - titleRightPadding;
   display.startWrite();
   display.fillRect(0, y, deckWidth - HeaderRightWidth, DeckHeaderHeight,
                    pulse ? EndingPulse[i] : Panel);
@@ -459,35 +460,39 @@ void drawOverview(int i, int y, const Deck& deck, int progress) {
   overview.pushSprite(0, y + DeckHeaderHeight + chartHeight);
 }
 
-uint16_t playIconColor(uint32_t elapsed) {
+uint32_t transportIconColor(uint32_t elapsed, bool endSyncActive) {
   constexpr float fullTurn = 6.2831853f;
   const float phase = float(elapsed % PlayFadePeriodMs) / PlayFadePeriodMs;
-  const float opacity = 0.18f + 0.41f * (1.0f - cosf(phase * fullTurn));
+  const float minimumOpacity = endSyncActive ? 0.0f : 0.18f;
+  const float opacity = minimumOpacity + (1.0f - minimumOpacity) * 0.5f * (1.0f - cosf(phase * fullTurn));
   const auto blendWhite = [opacity](uint8_t base) {
     return uint8_t(lroundf(base + (255 - base) * opacity));
   };
-  return display.color565(blendWhite((Panel >> 16) & 255),
+  return display.color888(blendWhite((Panel >> 16) & 255),
                           blendWhite((Panel >> 8) & 255),
                           blendWhite(Panel & 255));
 }
 
-void drawTransportIcon(const Deck& deck, uint16_t playColor) {
+void drawTransportIcon(const Deck& deck, uint32_t iconColor, bool showEndSync) {
   constexpr int center = DeckHeaderHeight / 2;
   headerRight.fillRect(0, 0, TransportIconWidth, DeckHeaderHeight, Panel);
-  if (deck.playing) {
+  if (showEndSync) {
+    label(headerRight, "ES", 15, center, iconColor,
+          &lgfx::fonts::DejaVu12, lgfx::textdatum_t::middle_center);
+  } else if (deck.playing) {
     constexpr int top = (DeckHeaderHeight - 12) / 2;
-    headerRight.fillTriangle(10, top, 10, top + 11, 20, center - 1, playColor);
-    headerRight.fillTriangle(10, top, 10, top + 11, 20, center, playColor);
+    headerRight.fillTriangle(10, top, 10, top + 11, 20, center - 1, iconColor);
+    headerRight.fillTriangle(10, top, 10, top + 11, 20, center, iconColor);
   } else if (deck.loaded) {
     headerRight.fillRect(10, center - 5, 3, 10, TFT_WHITE);
     headerRight.fillRect(16, center - 5, 3, 10, TFT_WHITE);
   }
 }
 
-void drawTransport(int i, int y, const Deck& deck, unsigned remaining, uint16_t playColor) {
+void drawTransport(int i, int y, const Deck& deck, unsigned remaining, uint32_t iconColor, bool showEndSync) {
   constexpr int center = DeckHeaderHeight / 2;
   headerRight.fillScreen(Panel);
-  drawTransportIcon(deck, playColor);
+  drawTransportIcon(deck, iconColor, showEndSync);
   char time[16];
   snprintf(time, sizeof(time), "-%02u:%02u", remaining / 60, remaining % 60);
   label(headerRight, deck.duration > 0 ? time : "--:--", 91, center, Text,
@@ -516,8 +521,9 @@ void renderLive(uint32_t now, bool newSnapshot, bool redraw) {
   static float positions[] = {-1.0f, -1.0f};
   static int overviewPositions[] = {-1, -1};
   static bool pulseShown[2]{};
-  static uint32_t playStartedAt[2]{};
-  static uint16_t playColorShown[2]{};
+  static uint32_t transportAnimationStartedAt[2]{};
+  static uint32_t iconColorShown[2]{};
+  static bool endSyncSymbolShown[2]{};
   static bool wasLoading[2]{};
   static uint32_t loadingStartedAt[2]{};
   static int loadingCenter[2]{};
@@ -548,20 +554,28 @@ void renderLive(uint32_t now, bool newSnapshot, bool redraw) {
     }
     static unsigned remainingShown[2]{};
     const unsigned remaining = unsigned(ceilf(min(deck.duration - position, 359999.0f)));
-    if (deck.playing && (redraw || !prior.playing)) playStartedAt[i] = now;
-    const uint16_t playColor = deck.playing ? playIconColor(now - playStartedAt[i]) : TFT_WHITE;
+    if (deck.playing && (redraw || !prior.playing)) {
+      transportAnimationStartedAt[i] = now;
+    } else if (deck.endSyncActive && !prior.endSyncActive) {
+      // Keep the current Play fade phase and start the alternation with Play.
+      transportAnimationStartedAt[i] = now - (now - transportAnimationStartedAt[i]) % PlayFadePeriodMs;
+    }
+    const uint32_t animationElapsed = now - transportAnimationStartedAt[i];
+    const bool showEndSync = deck.endSyncActive && (animationElapsed / PlayFadePeriodMs) % 2 == 1;
+    const uint32_t iconColor = deck.playing ? transportIconColor(animationElapsed, deck.endSyncActive) : 0xFFFFFF;
     if (redraw || durationChanged || deck.loaded != prior.loaded || deck.playing != prior.playing
         || remaining != remainingShown[i] || lroundf(deck.bpm * 10) != lroundf(prior.bpm * 10)) {
-      drawTransport(i, y, deck, remaining, playColor);
+      drawTransport(i, y, deck, remaining, iconColor, showEndSync);
       remainingShown[i] = remaining;
-    } else if (deck.playing && playColor != playColorShown[i]) {
+    } else if (deck.playing && (iconColor != iconColorShown[i] || showEndSync != endSyncSymbolShown[i])) {
       const int x = deckWidth - HeaderRightWidth;
-      drawTransportIcon(deck, playColor);
+      drawTransportIcon(deck, iconColor, showEndSync);
       display.setClipRect(x, y, TransportIconWidth, DeckHeaderHeight);
       headerRight.pushSprite(x, y);
       display.clearClipRect();
     }
-    playColorShown[i] = playColor;
+    iconColorShown[i] = iconColor;
+    endSyncSymbolShown[i] = showEndSync;
     const bool loading = deck.loaded && (!deck.peakCount || deck.duration <= 0.0f);
     const bool loadingChanged = loading != wasLoading[i];
     if (loading) {
