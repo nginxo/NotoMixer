@@ -371,6 +371,18 @@ body.app-daemon-locked > .in-app-window {
   will-change: filter;
 }
 
+canvas.waveform-loading {
+  background-color: #171f2c;
+  background-image: linear-gradient(90deg, #171f2c 43%, #34445a 50%, #171f2c 57%);
+  background-size: 240% 100%;
+  animation: waveform-shimmer 1.5s linear infinite;
+}
+
+@keyframes waveform-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
 @keyframes song-analyzer-led {
   50% { opacity: 0.35; }
 }
@@ -406,6 +418,11 @@ body.app-daemon-locked > .in-app-window {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  canvas.waveform-loading {
+    background-image: none;
+    animation: none;
+  }
+
   .song-analyzer-daemon-led,
   .song-analyzer-daemon-mark span,
   .song-analyzer-progress-scanline,

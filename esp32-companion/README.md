@@ -46,9 +46,17 @@ Il preset usa SPI2 in modalità 0 e rotazione 1 (480 × 320 in orizzontale). Usa
 
 Il preset usa il bridge **CH343** su UART0 a **115200 baud**. Se colleghi invece la porta USB nativa dell'ESP32-S3, abilita **USB CDC On Boot** e imposta `CompanionUseNativeUsb = true` in `Config.h` prima di ricompilare.
 
+## Browser dei brani
+
+Con la companion collegata e la finestra di NotoMixer attiva, premi **Alt+B** per aprire la libreria sul display. Usa **↑ / ↓** per scegliere il brano, **1** o **2** per caricarlo sulla deck corrispondente ed **Esc** per tornare alle waveform. In alto compare `AVAILABLE SONGS (D:\)` con l'unità della libreria. Il contatore a destra mostra l'ultimo brano della pagina rispetto al totale, per esempio `8/42`. La lista mostra titolo, BPM e durata quando disponibili.
+
+Per comandare lo stesso browser via COM, invia una riga `BROWSER:OPEN`, `BROWSER:UP`, `BROWSER:DOWN`, `BROWSER:LOAD1`, `BROWSER:LOAD2` o `BROWSER:CLOSE`. Il firmware inoltra l'azione a NotoMixer come `NM-BROWSER:<azione>`. I comandi inviati da un secondo programma richiedono un collegamento seriale che consenta lo scambio con NotoMixer, dato che l'app occupa la porta COM.
+
+NotoMixer invia la pagina al display come `NM-LIBRARY:` seguito da Base64. I primi 12 byte contengono lo stato aperto, il numero di righe, la selezione nella pagina, un byte riservato, il totale e l'indice della prima riga. Totale e indice sono uint32 little-endian. Ogni riga contiene 80 byte di titolo UTF-8, BPM in decimi e durata in secondi, entrambi uint16 little-endian. Dalla versione 7 seguono 32 byte con l'unità della libreria in UTF-8 terminato da NUL.
+
 ## Protocollo
 
-La companion si identifica con la riga `NM-COMPANION:5`. NotoMixer risponde con righe `NM-WAVEFORM:` seguite dai dati in Base64. Il pacchetto ha sigla `NM05`, due record di stato da 148 byte in ordine A, B e i picchi delle sole deck aggiornate. Gli aggiornamenti di posizione occupano 300 byte. Tutti i campi numerici multibyte sono little-endian. L'app accetta anche i firmware precedenti.
+La companion si identifica con la riga `NM-COMPANION:7`. NotoMixer risponde con righe `NM-WAVEFORM:` seguite dai dati in Base64. Il pacchetto ha sigla `NM05`, due record di stato da 148 byte in ordine A, B e i picchi delle sole deck aggiornate. Gli aggiornamenti di posizione occupano 300 byte. Tutti i campi numerici multibyte sono little-endian. L'app accetta anche i firmware precedenti.
 
 NotoMixer invia i picchi quando la companion si identifica o quando cambiano. Invia una sola waveform per pacchetto, fino a 6000 campioni. Durante il caricamento può svuotare una deck con il solo record di stato.
 

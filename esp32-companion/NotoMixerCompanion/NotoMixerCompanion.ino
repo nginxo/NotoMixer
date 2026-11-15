@@ -1,14 +1,17 @@
 #include <Arduino.h>
 #include <mbedtls/base64.h>
 
+#include "Browser.h"
 #include "Display.h"
 #include "Telemetry.h"
 
 namespace {
 
 constexpr uint32_t StaleMs = 2300;
-constexpr char CompanionHello[] = "NM-COMPANION:5";
+constexpr char CompanionHello[] = "NM-COMPANION:7";
 constexpr char WaveformPrefix[] = "NM-WAVEFORM:";
+constexpr char LibraryPrefix[] = "NM-LIBRARY:";
+constexpr char BrowserInputPrefix[] = "BROWSER:";
 constexpr size_t MaxSerialLine = sizeof(WaveformPrefix) - 1 + 4 * ((FrameWireSize + 2) / 3);
 constexpr float ViewSeconds = 8.0f;
 
@@ -29,13 +32,21 @@ constexpr int OverviewHeight = 19;
 constexpr float DrawHz = 40.0f;
 constexpr int DeckHeaderHeight = 28;
 constexpr int HeaderRightWidth = 196;
+constexpr int TransportIconWidth = 24;
+constexpr uint32_t PlayFadePeriodMs = 1400;
+constexpr int ShimmerRadius = 72;
+constexpr uint32_t ShimmerPeriodMs = 1500;
+constexpr uint32_t ShimmerBase = 0x171F2C;
+constexpr uint32_t ShimmerHighlight = 0x34445A;
 
 CompanionDisplay display;
 lgfx::LGFX_Sprite waveform(&display);
 lgfx::LGFX_Sprite headerRight(&display);
 lgfx::LGFX_Sprite overview(&display);
 QueueHandle_t snapshots;
+QueueHandle_t browserPages;
 Snapshot current{};
+BrowserPage browser{};
 int deckWidth;
 int deckHeight;
 int chartHeight;
@@ -44,6 +55,7 @@ void serialTask(void*) {
   static char line[MaxSerialLine + 1];
   static uint8_t frame[FrameWireSize];
   static Snapshot incoming{};
+  static BrowserPage incomingBrowser{};
   size_t length = 0;
   bool overflow = false;
   bool haveFullFrame = false;
@@ -69,6 +81,21 @@ void serialTask(void*) {
         haveFullFrame = false;
         incoming.receivedAt = 0;
         xQueueOverwrite(snapshots, &incoming);
+        incomingBrowser.open = false;
+        xQueueOverwrite(browserPages, &incomingBrowser);
+      } else if (!overflow && strncmp(line, LibraryPrefix, sizeof(LibraryPrefix) - 1) == 0) {
+        constexpr size_t prefix = sizeof(LibraryPrefix) - 1;
+        size_t decodedSize = 0;
+        if (mbedtls_base64_decode(frame, sizeof(frame), &decodedSize,
+            reinterpret_cast<const unsigned char*>(line + prefix), length - prefix) == 0
+            && decodeBrowserPage(frame, decodedSize, incomingBrowser)) {
+          xQueueOverwrite(browserPages, &incomingBrowser);
+        }
+      } else if (!overflow && strncmp(line, BrowserInputPrefix, sizeof(BrowserInputPrefix) - 1) == 0) {
+        if (length <= sizeof(BrowserInputPrefix) - 1 + 6) {
+          port.print("NM-");
+          port.println(line);
+        }
       } else if (!overflow && length > sizeof(WaveformPrefix) - 1
                  && memcmp(line, WaveformPrefix, sizeof(WaveformPrefix) - 1) == 0) {
         constexpr size_t prefixLength = sizeof(WaveformPrefix) - 1;
@@ -123,6 +150,121 @@ void label(lgfx::LGFXBase& target, const char* value, int x, int y, uint32_t col
   target.drawString(value, x, y);
 }
 
+const lgfx::IFont* trackTitleFont(const char* title) {
+  // LovyanGFX's DejaVu12 contains only printable ASCII.
+  for (; *title; ++title) {
+    if (static_cast<uint8_t>(*title) >= 0x80) return &lgfx::fonts::efontJA_16;
+  }
+  return &lgfx::fonts::DejaVu12;
+}
+
+void drawBrowser(const BrowserPage& page, bool reset) {
+  constexpr int topHeight = 62;
+  constexpr int footerHeight = 46;
+  constexpr int headerHeight = 38;
+  constexpr int titleX = 52;
+  constexpr int counterWidth = 100;
+  constexpr auto* LargeFont = &lgfx::fonts::DejaVu18;
+  constexpr auto* RowFont = &lgfx::fonts::DejaVu12;
+  constexpr uint32_t Selection = 0x383838;
+  constexpr uint32_t Alternate = 0x141D29;
+  const int width = display.width();
+  const int footerY = display.height() - footerHeight;
+  const int rowHeight = (footerY - topHeight) / BrowserRows;
+  const int bpmX = width - 102;
+  const int timeX = width - 20;
+  static BrowserPage shown{};
+  const bool listChanged = reset || page.start != shown.start || page.total != shown.total
+    || page.count != shown.count
+    || memcmp(page.rows, shown.rows, page.count * sizeof(BrowserRow)) != 0;
+  const bool driveChanged = reset || strcmp(page.drive, shown.drive) != 0;
+  const bool counterChanged = reset || page.start + page.count != shown.start + shown.count
+    || page.total != shown.total;
+  if (!listChanged && !driveChanged && page.selected == shown.selected) return;
+  display.startWrite();
+  if (reset) {
+    display.fillScreen(Background);
+    const int columnsY = (headerHeight + topHeight) / 2;
+    label(display, "TITOLO", titleX, columnsY, Muted, RowFont, lgfx::textdatum_t::middle_left);
+    label(display, "BPM", bpmX, columnsY, Muted, RowFont, lgfx::textdatum_t::middle_right);
+    label(display, "TEMPO", timeX, columnsY, Muted, RowFont, lgfx::textdatum_t::middle_right);
+    display.drawFastHLine(0, topHeight - 1, width, Border);
+  }
+  if (driveChanged) {
+    char heading[64] = "AVAILABLE SONGS";
+    if (page.drive[0]) {
+      const bool driveLetter = page.drive[1] == ':' && page.drive[2] == '\0';
+      snprintf(heading, sizeof(heading), "AVAILABLE SONGS (%s%s)", page.drive, driveLetter ? "\\" : "");
+    }
+    display.fillRect(0, 0, width - counterWidth, headerHeight, Background);
+    display.setClipRect(0, 0, width - counterWidth, headerHeight);
+    label(display, heading, 14, headerHeight / 2, Text, LargeFont, lgfx::textdatum_t::middle_left);
+    display.clearClipRect();
+  }
+  if (counterChanged) {
+    char count[24];
+    snprintf(count, sizeof(count), "%lu/%lu", static_cast<unsigned long>(page.start + page.count),
+             static_cast<unsigned long>(page.total));
+    display.fillRect(width - counterWidth, 0, counterWidth, headerHeight, Background);
+    display.setClipRect(width - counterWidth, 0, counterWidth, headerHeight);
+    label(display, count, width - 16, headerHeight / 2, Text, LargeFont, lgfx::textdatum_t::middle_right);
+    display.clearClipRect();
+  }
+  if (listChanged && page.count < BrowserRows) {
+    const int y = topHeight + page.count * rowHeight;
+    display.fillRect(0, y, width - 9, footerY - y, Background);
+  }
+  if (listChanged && !page.count) {
+    label(display, "Nessun brano nella libreria", width / 2, (topHeight + footerY) / 2,
+          Muted, RowFont, lgfx::textdatum_t::middle_center);
+  }
+  for (int i = 0; i < page.count; ++i) {
+    const bool selected = i == page.selected;
+    if (!listChanged && (page.selected == shown.selected || (!selected && i != shown.selected))) continue;
+    const int y = topHeight + i * rowHeight;
+    const int middle = y + rowHeight / 2;
+    display.fillRect(0, y, width - 9, rowHeight, selected ? Selection : (i % 2 ? Alternate : Background));
+    char number[12];
+    snprintf(number, sizeof(number), "%lu", static_cast<unsigned long>(page.start + i + 1));
+    display.setClipRect(7, y, titleX - 15, rowHeight);
+    label(display, number, titleX - 9, middle, selected ? Text : Muted,
+          RowFont, lgfx::textdatum_t::middle_right);
+    display.setClipRect(titleX, y, bpmX - titleX - 60, rowHeight);
+    label(display, page.rows[i].title, titleX, middle, Text,
+          trackTitleFont(page.rows[i].title), lgfx::textdatum_t::middle_left);
+    display.clearClipRect();
+    char bpm[16] = "--";
+    if (page.rows[i].bpm) snprintf(bpm, sizeof(bpm), "%.1f", page.rows[i].bpm / 10.0);
+    char time[16] = "--:--";
+    const unsigned seconds = page.rows[i].duration;
+    if (seconds) snprintf(time, sizeof(time), "%u:%02u", seconds / 60, seconds % 60);
+    label(display, bpm, bpmX, middle, selected ? Text : Muted,
+          RowFont, lgfx::textdatum_t::middle_right);
+    label(display, time, timeX, middle, selected ? Text : Muted,
+          RowFont, lgfx::textdatum_t::middle_right);
+  }
+  if (reset || page.start != shown.start || page.total != shown.total) {
+    const int top = topHeight + 2;
+    const int height = footerY - topHeight - 4;
+    display.fillRect(width - 6, top, 3, height, page.total > BrowserRows ? Border : Background);
+    if (page.total > BrowserRows) {
+      const int thumb = max(8, int(uint64_t(height) * BrowserRows / page.total));
+      const int y = top + int(uint64_t(height - thumb) * page.start / (page.total - BrowserRows));
+      display.fillRect(width - 6, y, 3, thumb, Muted);
+    }
+  }
+  if (reset || bool(page.count) != bool(shown.count)) {
+    display.fillRect(0, footerY, width, footerHeight, Panel);
+    display.drawFastHLine(0, footerY, width, Border);
+    label(display, "Load Deck 1", 16, footerY + footerHeight / 2, page.count ? Accent[0] : Muted,
+          LargeFont, lgfx::textdatum_t::middle_left);
+    label(display, "Load Deck 2", width - 16, footerY + footerHeight / 2, page.count ? Accent[1] : Muted,
+          LargeFont, lgfx::textdatum_t::middle_right);
+  }
+  display.endWrite();
+  shown = page;
+}
+
 void drawDeckHeader(int i, int y, const Deck& deck, bool pulse) {
   constexpr int titleStart = 37;
   const int center = y + DeckHeaderHeight / 2;
@@ -135,8 +277,8 @@ void drawDeckHeader(int i, int y, const Deck& deck, bool pulse) {
         &lgfx::fonts::DejaVu12, lgfx::textdatum_t::middle_left);
   display.drawFastVLine(titleStart - 7, y + 6, DeckHeaderHeight - 12, Border);
   display.setClipRect(titleStart, y, textWidth, DeckHeaderHeight);
-  label(display, deck.loaded ? deck.title : "Deck vuota", titleStart, center,
-        Text, &lgfx::fonts::DejaVu12, lgfx::textdatum_t::middle_left);
+  const char* title = deck.loaded ? deck.title : "Deck vuota";
+  label(display, title, titleStart, center, Text, trackTitleFont(title), lgfx::textdatum_t::middle_left);
   display.clearClipRect();
   display.endWrite();
 }
@@ -250,11 +392,52 @@ void drawWaveform(int i, int y, const Deck& deck, float position) {
     waveform.fillTriangle(cursor - 4, 0, cursor + 4, 0, cursor, 6, Playhead);
     waveform.fillTriangle(cursor - 4, chartHeight - 1, cursor + 4, chartHeight - 1,
                           cursor, chartHeight - 7, Playhead);
-  } else if (deck.loaded) {
-    label(waveform, "Waveform in attesa", cursor, center + 5, Muted,
-          &lgfx::fonts::Font0, lgfx::textdatum_t::top_center);
   }
   waveform.pushSprite(0, y + DeckHeaderHeight);
+}
+
+void drawWaveformLoading(int y, int center, int previousCenter, bool reset) {
+  if (!reset && center == previousCenter) return;
+
+  waveform.fillScreen(ShimmerBase);
+  overview.fillScreen(ShimmerBase);
+  for (int x = max(0, center - ShimmerRadius); x < min(deckWidth, center + ShimmerRadius); ++x) {
+    const float t = 1.0f - float(abs(x - center)) / ShimmerRadius;
+    const float light = t * t * (3.0f - 2.0f * t);
+    uint32_t color = 0;
+    for (int shift = 0; shift <= 16; shift += 8) {
+      const int base = (ShimmerBase >> shift) & 255;
+      const int highlight = (ShimmerHighlight >> shift) & 255;
+      color |= uint32_t(base + lroundf((highlight - base) * light)) << shift;
+    }
+    waveform.drawFastVLine(x, 0, chartHeight, color);
+    overview.drawFastVLine(x, 0, OverviewHeight, color);
+  }
+  label(waveform, "Waveform in attesa", deckWidth / 2, chartHeight / 2, Muted,
+        &lgfx::fonts::Font0, lgfx::textdatum_t::middle_center);
+
+  const int top = y + DeckHeaderHeight;
+  const int height = chartHeight + OverviewHeight;
+  const auto pushRegion = [&](int left, int right) {
+    left = max(0, left);
+    right = min(deckWidth, right);
+    if (right <= left) return;
+    display.setClipRect(left, top, right - left, height);
+    waveform.pushSprite(0, top);
+    overview.pushSprite(0, top + chartHeight);
+  };
+
+  display.startWrite();
+  if (reset) {
+    pushRegion(0, deckWidth);
+  } else if (center < previousCenter) {
+    pushRegion(previousCenter - ShimmerRadius, deckWidth);
+    pushRegion(0, center + ShimmerRadius);
+  } else {
+    pushRegion(previousCenter - ShimmerRadius, center + ShimmerRadius);
+  }
+  display.clearClipRect();
+  display.endWrite();
 }
 
 void drawOverview(int i, int y, const Deck& deck, int progress) {
@@ -276,17 +459,35 @@ void drawOverview(int i, int y, const Deck& deck, int progress) {
   overview.pushSprite(0, y + DeckHeaderHeight + chartHeight);
 }
 
-void drawTransport(int i, int y, const Deck& deck, unsigned remaining) {
+uint16_t playIconColor(uint32_t elapsed) {
+  constexpr float fullTurn = 6.2831853f;
+  const float phase = float(elapsed % PlayFadePeriodMs) / PlayFadePeriodMs;
+  const float opacity = 0.18f + 0.41f * (1.0f - cosf(phase * fullTurn));
+  const auto blendWhite = [opacity](uint8_t base) {
+    return uint8_t(lroundf(base + (255 - base) * opacity));
+  };
+  return display.color565(blendWhite((Panel >> 16) & 255),
+                          blendWhite((Panel >> 8) & 255),
+                          blendWhite(Panel & 255));
+}
+
+void drawTransportIcon(const Deck& deck, uint16_t playColor) {
   constexpr int center = DeckHeaderHeight / 2;
-  headerRight.fillScreen(Panel);
+  headerRight.fillRect(0, 0, TransportIconWidth, DeckHeaderHeight, Panel);
   if (deck.playing) {
     constexpr int top = (DeckHeaderHeight - 12) / 2;
-    headerRight.fillTriangle(10, top, 10, top + 11, 20, center - 1, TFT_WHITE);
-    headerRight.fillTriangle(10, top, 10, top + 11, 20, center, TFT_WHITE);
+    headerRight.fillTriangle(10, top, 10, top + 11, 20, center - 1, playColor);
+    headerRight.fillTriangle(10, top, 10, top + 11, 20, center, playColor);
   } else if (deck.loaded) {
     headerRight.fillRect(10, center - 5, 3, 10, TFT_WHITE);
     headerRight.fillRect(16, center - 5, 3, 10, TFT_WHITE);
   }
+}
+
+void drawTransport(int i, int y, const Deck& deck, unsigned remaining, uint16_t playColor) {
+  constexpr int center = DeckHeaderHeight / 2;
+  headerRight.fillScreen(Panel);
+  drawTransportIcon(deck, playColor);
   char time[16];
   snprintf(time, sizeof(time), "-%02u:%02u", remaining / 60, remaining % 60);
   label(headerRight, deck.duration > 0 ? time : "--:--", 91, center, Text,
@@ -315,6 +516,11 @@ void renderLive(uint32_t now, bool newSnapshot, bool redraw) {
   static float positions[] = {-1.0f, -1.0f};
   static int overviewPositions[] = {-1, -1};
   static bool pulseShown[2]{};
+  static uint32_t playStartedAt[2]{};
+  static uint16_t playColorShown[2]{};
+  static bool wasLoading[2]{};
+  static uint32_t loadingStartedAt[2]{};
+  static int loadingCenter[2]{};
   if (redraw) {
     display.fillScreen(Background);
   }
@@ -342,12 +548,30 @@ void renderLive(uint32_t now, bool newSnapshot, bool redraw) {
     }
     static unsigned remainingShown[2]{};
     const unsigned remaining = unsigned(ceilf(min(deck.duration - position, 359999.0f)));
+    if (deck.playing && (redraw || !prior.playing)) playStartedAt[i] = now;
+    const uint16_t playColor = deck.playing ? playIconColor(now - playStartedAt[i]) : TFT_WHITE;
     if (redraw || durationChanged || deck.loaded != prior.loaded || deck.playing != prior.playing
         || remaining != remainingShown[i] || lroundf(deck.bpm * 10) != lroundf(prior.bpm * 10)) {
-      drawTransport(i, y, deck, remaining);
+      drawTransport(i, y, deck, remaining, playColor);
       remainingShown[i] = remaining;
+    } else if (deck.playing && playColor != playColorShown[i]) {
+      const int x = deckWidth - HeaderRightWidth;
+      drawTransportIcon(deck, playColor);
+      display.setClipRect(x, y, TransportIconWidth, DeckHeaderHeight);
+      headerRight.pushSprite(x, y);
+      display.clearClipRect();
     }
-    if (redraw || peaksChanged || durationChanged || markersChanged || gridChanged
+    playColorShown[i] = playColor;
+    const bool loading = deck.loaded && (!deck.peakCount || deck.duration <= 0.0f);
+    const bool loadingChanged = loading != wasLoading[i];
+    if (loading) {
+      const bool reset = redraw || loadingChanged || titleChanged;
+      if (reset) loadingStartedAt[i] = now;
+      const uint32_t phase = (now - loadingStartedAt[i]) % ShimmerPeriodMs;
+      const int center = int(phase * (deckWidth + 2 * ShimmerRadius) / ShimmerPeriodMs) - ShimmerRadius;
+      drawWaveformLoading(y, center, loadingCenter[i], reset);
+      loadingCenter[i] = center;
+    } else if (redraw || loadingChanged || peaksChanged || durationChanged || markersChanged || gridChanged
         || deck.colored != prior.colored || deck.loaded != prior.loaded
         || (deck.peakCount && fabsf(position - positions[i]) >= ViewSeconds / deckWidth)) {
       drawWaveform(i, y, deck, position);
@@ -355,10 +579,12 @@ void renderLive(uint32_t now, bool newSnapshot, bool redraw) {
     }
     const int progress = deck.peakCount && deck.duration > 0.0f
       ? min(deckWidth - 1, int(position * deckWidth / deck.duration)) : -1;
-    if (redraw || peaksChanged || durationChanged || markersChanged || progress != overviewPositions[i]) {
+    if (!loading && (redraw || loadingChanged || peaksChanged || durationChanged
+        || markersChanged || progress != overviewPositions[i])) {
       drawOverview(i, y, deck, progress);
       overviewPositions[i] = progress;
     }
+    wasLoading[i] = loading;
     if (redraw || newSnapshot) drawn.decks[i] = deck;
   }
 }
@@ -390,25 +616,36 @@ void setup() {
     return;
   }
   snapshots = xQueueCreate(1, sizeof(Snapshot));
-  if (!snapshots || xTaskCreate(serialTask, "notomixer-serial", 6144, nullptr, 1, nullptr) != pdPASS) {
+  browserPages = xQueueCreate(1, sizeof(BrowserPage));
+  if (!snapshots || !browserPages
+      || xTaskCreate(serialTask, "notomixer-serial", 6144, nullptr, 1, nullptr) != pdPASS) {
     if (snapshots) vQueueDelete(snapshots);
+    if (browserPages) vQueueDelete(browserPages);
     snapshots = nullptr;
+    browserPages = nullptr;
     label(display, "Errore avvio seriale", 12, 12, Text);
   }
 }
 
 void loop() {
   static bool wasLive = false;
+  static bool wasBrowsing = false;
   const bool newSnapshot = snapshots && xQueueReceive(snapshots, &current, 0) == pdTRUE;
+  const bool newPage = browserPages && xQueueReceive(browserPages, &browser, 0) == pdTRUE;
   const uint32_t now = millis();
   if (snapshots) {
     const bool live = current.receivedAt && now - current.receivedAt < StaleMs;
-    if (live) {
-      renderLive(now, newSnapshot, !wasLive);
+    const bool browsing = live && browser.open;
+    if (browsing) {
+      if (!wasBrowsing || newPage) drawBrowser(browser, !wasBrowsing);
+    } else if (live) {
+      renderLive(now, newSnapshot, !wasLive || wasBrowsing);
     } else if (wasLive) {
       drawIdleLogo();
     }
+    if (!live && wasLive) browser.open = false;
     wasLive = live;
+    wasBrowsing = browsing;
   }
   constexpr uint32_t interval = uint32_t(1000 / DrawHz);
   const uint32_t elapsed = millis() - now;

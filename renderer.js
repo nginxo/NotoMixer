@@ -736,6 +736,7 @@ function setupKeyboardShortcuts() {
   }));
 
   document.addEventListener('keydown', event => {
+    if (handleEsp32BrowserKey(event)) return;
     if (event.repeat || isKeyboardShortcutBlocked(event)) return;
 
     if (event.code === 'Space') {
@@ -2563,6 +2564,80 @@ let tabletControllerInfo = null;
 const esp32WaveformCache = new WeakMap();
 const esp32LayeredWaveformCache = new WeakMap();
 const esp32DetailedWaveformCache = new WeakMap();
+const Esp32BrowserRows = 8;
+const Esp32BrowserTelemetryIntervalMs = 350;
+const Esp32BrowserKeys = {
+  ArrowUp: 'UP', ArrowDown: 'DOWN', Digit1: 'LOAD1', Digit2: 'LOAD2', Escape: 'CLOSE'
+};
+
+function handleEsp32BrowserKey(event) {
+  const connection = serialCompanion;
+  if (!connection || connection.version < 6 || isKeyboardShortcutBlocked(event)) return false;
+  const toggle = event.altKey && event.code === 'KeyB';
+  const action = toggle ? 'TOGGLE' : connection.browserOpen ? Esp32BrowserKeys[event.code] : null;
+  if (!action || (event.repeat && action !== 'UP' && action !== 'DOWN')) return false;
+  event.preventDefault();
+  handleEsp32BrowserAction(connection, action);
+  return true;
+}
+
+function handleEsp32BrowserAction(connection, action) {
+  if (action === 'TOGGLE') action = connection.browserOpen ? 'CLOSE' : 'OPEN';
+  if (action === 'OPEN') {
+    connection.browserOpen = true;
+    connection.browserSongs = Array.from(document.querySelectorAll('#songs-list li[data-folder]'));
+    connection.browserSelected = 0;
+  } else if (!connection.browserOpen) {
+    return;
+  } else if (action === 'CLOSE') {
+    connection.browserOpen = false;
+  } else if (action === 'UP' || action === 'DOWN') {
+    const step = action === 'UP' ? -1 : 1;
+    const selected = Math.max(0, Math.min(connection.browserSongs.length - 1,
+      connection.browserSelected + step));
+    if (selected === connection.browserSelected) return;
+    connection.browserSelected = selected;
+  } else if (action === 'LOAD1' || action === 'LOAD2') {
+    const songId = connection.browserSongs[connection.browserSelected]?.dataset.folder;
+    if (songId && loadTabletSelectedSong({ trackNum: Number(action.at(-1)), songId }, 'Companion')) {
+      connection.browserOpen = false;
+    }
+  } else {
+    return;
+  }
+  connection.browserDirty = true;
+  void publishEsp32CompanionFrame();
+}
+
+function buildEsp32BrowserFrame(connection) {
+  const songs = connection.browserSongs || [];
+  const selected = connection.browserSelected || 0;
+  const pageStart = Math.floor(selected / Esp32BrowserRows) * Esp32BrowserRows;
+  const start = Math.max(0, Math.min(pageStart, songs.length - Esp32BrowserRows));
+  const rows = connection.browserOpen ? songs.slice(start, start + Esp32BrowserRows) : [];
+  const rowsEnd = 12 + rows.length * 84;
+  const frame = Buffer.alloc(rowsEnd + (connection.version >= 7 ? 32 : 0));
+  frame[0] = connection.browserOpen ? 1 : 0;
+  frame[1] = rows.length;
+  frame[2] = selected - start;
+  frame.writeUInt32LE(songs.length, 4);
+  frame.writeUInt32LE(start, 8);
+  rows.forEach(({ dataset }, index) => {
+    const offset = 12 + index * 84;
+    const title = dataset.songName || dataset.folder || '';
+    frame.write(title.replace(/[\x00-\x1f\x7f]/g, ' ').toUpperCase().normalize('NFC'), offset, 79, 'utf8');
+    const bpm = Number(dataset.bpm);
+    const duration = Number(dataset.duration);
+    frame.writeUInt16LE(bpm > 0 && bpm < 1000 ? Math.round(bpm * 10) : 0, offset + 80);
+    frame.writeUInt16LE(duration > 0 ? Math.min(65535, Math.floor(duration)) : 0, offset + 82);
+  });
+  if (connection.version >= 7 && connection.browserOpen && workingDir) {
+    const root = path.parse(path.resolve(workingDir)).root;
+    const drive = root.replace(/[\\/]$/, '') || root;
+    frame.write(/^[a-z]:$/i.test(drive) ? drive.toUpperCase() : drive, rowsEnd, 31, 'utf8');
+  }
+  return Buffer.from(`\nNM-LIBRARY:${frame.toString('base64')}\n`, 'ascii');
+}
 
 const uncoloredWaveforms = new WeakMap();
 function getUncoloredWaveform(peaks) {
@@ -2645,11 +2720,35 @@ async function publishEsp32CompanionFrame() {
   const now = performance.now();
   if (!connection || !writer || serialClosing || connection.writing || now < connection.nextWrite) return;
 
+  const loadingDecks = [1, 2].map(trackNum => tracks[trackNum]._waveformLoading === true);
+  const loadingChanged = loadingDecks.some((loading, index) => loading
+    !== (connection.loadingDecks?.[index] ?? false));
+  // The ESP32 checks the waveform stream even while the browser covers the decks.
+  const telemetryDue = now - (connection.lastWaveformSentAt ?? -Infinity) >= Esp32BrowserTelemetryIntervalMs;
+  if (connection.browserDirty && !telemetryDue && !loadingChanged) {
+    connection.browserDirty = false;
+    connection.writing = true;
+    try {
+      const line = buildEsp32BrowserFrame(connection);
+      await writer.write(line);
+      connection.nextWrite = now + Math.ceil(line.length / 11.52);
+    } catch (error) {
+      if (serialCompanion === connection) {
+        serialCompanion = null;
+        logConsole(`Err: Companion browser write failed: ${error.message}`, 'err');
+      }
+    } finally {
+      connection.writing = false;
+    }
+    return;
+  }
+
   const audioElements = [1, 2].map(trackNum => (
-    getRefAudio(trackNum) || (tracks[trackNum].isSynth ? tracks[trackNum].fallbackAudio : null)
+    loadingDecks[trackNum - 1] ? null
+      : getRefAudio(trackNum) || (tracks[trackNum].isSynth ? tracks[trackNum].fallbackAudio : null)
   ));
   const waveforms = audioElements.map((audio, index) => (
-    audio && !tracks[index + 1]._waveformLoading ? getEsp32Waveform(
+    audio ? getEsp32Waveform(
       tracks[index + 1].staticWaveform, tracks[index + 1].waveformBands, connection.version
     ) : null
   ));
@@ -2680,6 +2779,14 @@ async function publishEsp32CompanionFrame() {
     const audio = audioElements[trackNum - 1];
     const offset = 4 + (trackNum - 1) * recordSize;
     if (replaced[trackNum - 1]) frame[offset] |= 16;
+    if (loadingDecks[trackNum - 1]) {
+      frame[offset] |= 1;
+      const name = path.basename(track.dirPath || '');
+      const ext = path.extname(name);
+      const title = SONG_AUDIO_EXTENSIONS.has(ext.toLowerCase()) ? name.slice(0, -ext.length) : name;
+      frame.write(title.toUpperCase().replace(/[\x00-\x1f\x7f]/g, ' ').normalize('NFC'), offset + 20, 79, 'utf8');
+      continue;
+    }
     if (!audio) continue;
 
     const bpm = (Number(track.bpmVal) || 0) * (Number(track.speedVal) || 1);
@@ -2693,7 +2800,7 @@ async function publishEsp32CompanionFrame() {
     frame.writeFloatLE(rate, offset + 12);
     frame.writeFloatLE(bpm, offset + 16);
     const title = document.getElementById(`track-name-${trackNum}`)?.textContent || track.title || '';
-    frame.write(title.trim().replace(/[\x00-\x1f\x7f]/g, ' '), offset + 20, 79, 'utf8');
+    frame.write(title.trim().replace(/[\x00-\x1f\x7f]/g, ' ').normalize('NFC'), offset + 20, 79, 'utf8');
 
     if (connection.version >= 2) {
       if (transmittedColors[trackNum - 1]) frame[offset] |= 4;
@@ -2730,11 +2837,13 @@ async function publishEsp32CompanionFrame() {
   try {
     const line = Buffer.from(`\nNM-WAVEFORM:${frame.toString('base64')}\n`, 'ascii');
     await writer.write(line);
+    connection.lastWaveformSentAt = now;
+    connection.loadingDecks = loadingDecks;
+    connection.nextWrite = now + Math.ceil(line.length / 11.52);
     if (full) {
       connection.sentFullRequest = fullRequest;
       connection.waveforms = transmitted;
       connection.colored = transmittedColors;
-      connection.nextWrite = now + Math.ceil(line.length / 11.52);
     }
   } catch (error) {
     if (serialCompanion === connection) {
@@ -2872,7 +2981,7 @@ function publishTabletSongLibrary() {
   ipcRenderer.send('tablet-controller:library', { playlists, songs });
 }
 
-function loadTabletSelectedSong(payload) {
+function loadTabletSelectedSong(payload, source = 'Tablet') {
   const trackNum = Number(payload?.trackNum);
   const songId = typeof payload?.songId === 'string' ? payload.songId : '';
   if ((trackNum !== 1 && trackNum !== 2) || !workingDir || !songId) return;
@@ -2883,11 +2992,11 @@ function loadTabletSelectedSong(payload) {
       song => song.relativePath === songId
     );
   } catch (error) {
-    logConsole(`Tablet: Unable to read song library (${error.message})`, 'err');
+    logConsole(`${source}: Unable to read song library (${error.message})`, 'err');
     return;
   }
   if (!selectedSong) {
-    logConsole('Tablet: Rejected unavailable song selection', 'err');
+    logConsole(`${source}: Rejected unavailable song selection`, 'err');
     return;
   }
 
@@ -2895,16 +3004,17 @@ function loadTabletSelectedSong(payload) {
   const selectedPath = path.resolve(libraryRoot, selectedSong.relativePath);
   const relativeCheck = path.relative(libraryRoot, selectedPath);
   if (relativeCheck.startsWith('..') || path.isAbsolute(relativeCheck)) {
-    logConsole('Tablet: Rejected song outside the working directory', 'err');
+    logConsole(`${source}: Rejected song outside the working directory`, 'err');
     return;
   }
 
   loadDirectoryStems(trackNum, selectedPath);
   publishTabletControllerState(true);
   logConsole(
-    `Tablet: Loaded ${selectedSong.displayName} on Track ${trackNum}`,
+    `${source}: Loading ${selectedSong.displayName} on Track ${trackNum}`,
     'system'
   );
+  return true;
 }
 
 function handleTabletControllerCue(payload) {
@@ -8504,13 +8614,14 @@ async function loadDirectoryStems(trackNum, dirPath) {
     track.waveformBands = null;
     track._waveformRevealPending = false;
     track._waveformLoading = true;
+    track.dirPath = dirPath;
+    void publishEsp32CompanionFrame();
     for (const id of [`overview-canvas-${trackNum}`, `canvas-${trackNum}`, `beatmatch-canvas-${trackNum}`]) {
       clearWaveformCanvas(document.getElementById(id));
     }
     clearEndSyncCueAssignmentsForTarget(trackNum);
     clearTrackHotCues(trackNum);
     
-    track.dirPath = dirPath;
     updateTrackPlatterCover(trackNum);
     track.silenceStartTime = 0;
     track.silenceEndTime = null;
@@ -8581,7 +8692,6 @@ async function loadDirectoryStems(trackNum, dirPath) {
     if (originalAudioPaths.some(isM4aFile)) {
       logConsole(`M4A: Checking codec compatibility for Track ${trackNum}...`, 'system');
     }
-    void publishEsp32CompanionFrame();
     const compatibleAudioPaths = await getCompatibleAudioPaths(originalAudioPaths);
     if (track._directoryLoadToken !== directoryLoadToken) return;
     const convertedM4aCount = originalAudioPaths.filter(
@@ -9116,6 +9226,12 @@ function clearWaveformCanvas(canvas) {
   ctx.resetTransform();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.restore();
+}
+
+function setWaveformLoading(canvas, loading) {
+  if (!canvas || canvas.classList.contains('waveform-loading') === loading) return;
+  if (loading) clearWaveformCanvas(canvas);
+  canvas.classList.toggle('waveform-loading', loading);
 }
 
 function animateTrackWaveform(canvases) {
@@ -11756,11 +11872,12 @@ function parseIncomingMessage(msg) {
     logConsole("Info: ESP32 synchronization completed successfully!", "system");
   }
 
-  if (/^NM-COMPANION:[12345]$/.test(msg)) {
+  if (/^NM-COMPANION:[1234567]$/.test(msg)) {
     const version = Number(msg.at(-1));
     if (activeWriter && !serialClosing) {
       if (serialCompanion?.version === version) {
         serialCompanion.fullRequest += 1;
+        if (serialCompanion.browserOpen) serialCompanion.browserDirty = true;
       } else {
         serialCompanion = {
           version,
@@ -11774,6 +11891,10 @@ function parseIncomingMessage(msg) {
         logConsole(`Info: NotoMixer Companion v${version} connected over USB.`, 'system');
       }
     }
+    return;
+  }
+  if (msg.startsWith('NM-BROWSER:') && serialCompanion?.version >= 6 && !serialClosing) {
+    handleEsp32BrowserAction(serialCompanion, msg.slice('NM-BROWSER:'.length));
     return;
   }
   
@@ -12109,9 +12230,12 @@ function startVisualizers() {
       
       try {
         const mode = track.visMode || 'waveform';
+        const loading = mode === 'waveform' && track._waveformLoading === true;
+        setWaveformLoading(canvas, loading);
+        setWaveformLoading(overviewCanvas, loading);
         const audio = getRefAudio(trackNum);
         const otherAudio = getRefAudio(otherNum);
-        const showBeatmatch = mode === 'waveform'
+        const showBeatmatch = mode === 'waveform' && !loading && !otherTrack._waveformLoading
           && !!track.staticWaveform?.length && !!otherTrack.staticWaveform?.length
           && Number.isFinite(audio?.duration) && Number.isFinite(otherAudio?.duration)
           && audio.duration > 0 && otherAudio.duration > 0;
@@ -12253,21 +12377,22 @@ function startVisualizers() {
           }
         }
         
-        ctx.fillStyle = '#0d0d0d';
-        ctx.fillRect(0, 0, width, height);
-        
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 1;
-        for (let x = 0; x < width; x += 20) {
+        if (!loading) {
+          ctx.fillStyle = '#0d0d0d';
+          ctx.fillRect(0, 0, width, height);
+          ctx.strokeStyle = '#222';
+          ctx.lineWidth = 1;
+          for (let x = 0; x < width; x += 20) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+          }
           ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, height);
+          ctx.moveTo(0, height / 2);
+          ctx.lineTo(width, height / 2);
           ctx.stroke();
         }
-        ctx.beginPath();
-        ctx.moveTo(0, height / 2);
-        ctx.lineTo(width, height / 2);
-        ctx.stroke();
         
         if (showBeatmatch) drawBeatmatchStrip(beatmatchCanvas, beatmatchCtx, trackNum, audio, otherAudio);
         
@@ -12331,9 +12456,9 @@ function startVisualizers() {
             ctx.lineTo(width, height / 2);
             ctx.stroke();
           }
-        } else if (mode === 'waveform') {
+        } else if (mode === 'waveform' && !loading) {
           // SCROLLING AUDIO WAVEFORM (Audacity Smooth Style)
-          if (!track._waveformLoading && track.staticWaveform?.length) {
+          if (track.staticWaveform?.length) {
             let currentPct = 0;
             if (refAudio) {
               currentPct = refAudio.currentTime / duration;
@@ -12492,8 +12617,7 @@ function startVisualizers() {
             ctx.fillStyle = '#666';
             ctx.font = '12px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText(track._waveformLoading ? "ANALYZING WAVEFORM" : "NO AUDIO FILE LOADED",
-              width / 2, height / 2 + 3);
+            ctx.fillText("NO AUDIO FILE LOADED", width / 2, height / 2 + 3);
           }
         }
 
@@ -13235,6 +13359,7 @@ let prevAutoLoopBeats = 4;
 let previewStaticWaveform = null;
 let previewWaveformBands = null;
 let previewWaveformGeneration = 0;
+let previewWaveformLoading = false;
 
 // Audio Nodes for Preview
 let prevBassFilter = null;
@@ -13640,8 +13765,9 @@ function applyPreviewFilters() {
 }
 
 async function loadPreviewSong(dirPath, folderName) {
+  const generation = ++previewWaveformGeneration;
+  previewWaveformLoading = true;
   try {
-    const generation = ++previewWaveformGeneration;
     previewStaticWaveform = null;
     previewWaveformBands = null;
     clearWaveformCanvas(document.getElementById('prev-overview-canvas'));
@@ -13715,7 +13841,7 @@ async function loadPreviewSong(dirPath, folderName) {
       logConsole('M4A: Checking preview codec compatibility...', 'system');
     }
     const compatibleAudioPaths = await getCompatibleAudioPaths(originalAudioPaths);
-    if (previewSongPath !== dirPath) return;
+    if (generation !== previewWaveformGeneration) return;
     if (originalAudioPaths.some(originalPath => compatibleAudioPaths.get(originalPath) !== originalPath)) {
       logConsole('M4A: Lossless preview cache ready.', 'system');
     }
@@ -13878,7 +14004,11 @@ async function loadPreviewSong(dirPath, folderName) {
     if (vocalsFile) previewPaths.push(vocalsFile);
     instFiles.forEach(f => previewPaths.push(f));
     if (generation === previewWaveformGeneration) {
-      generatePreviewStaticWaveform(actualDirPath, previewPaths, generation);
+      generatePreviewStaticWaveform(actualDirPath, previewPaths, generation)
+        .catch(err => console.error("Preview Waveform decode failed:", err))
+        .finally(() => {
+          if (generation === previewWaveformGeneration) previewWaveformLoading = false;
+        });
     }
     
     setTimeout(() => {
@@ -13886,11 +14016,12 @@ async function loadPreviewSong(dirPath, folderName) {
     }, 300);
     
   } catch (err) {
+    if (generation === previewWaveformGeneration) previewWaveformLoading = false;
     console.error("Error loading preview song:", err);
   }
 }
 
-function generatePreviewStaticWaveform(dirPath, files, generation) {
+async function generatePreviewStaticWaveform(dirPath, files, generation) {
   const pathsToDecode = [];
   files.forEach(file => pathsToDecode.push(path.join(dirPath, file)));
   
@@ -13904,7 +14035,7 @@ function generatePreviewStaticWaveform(dirPath, files, generation) {
     })
   ));
 
-  Promise.all(decodePromises).then(buffers => {
+  return Promise.all(decodePromises).then(buffers => {
     if (generation !== previewWaveformGeneration) return;
     // Associate decoded buffers with preview stems for real-time scratching
     let bufIdx = 0;
@@ -13974,11 +14105,9 @@ function generatePreviewStaticWaveform(dirPath, files, generation) {
 
     const maxVal = Math.max(...peaks);
     previewStaticWaveform = Array.from(peaks).map(p => p / (maxVal || 1));
-    getSongAnalysisWorkerPool().analyze(audioBuffers, true).then(({ waveformBands }) => {
+    return getSongAnalysisWorkerPool().analyze(audioBuffers, true).then(({ waveformBands }) => {
       if (generation === previewWaveformGeneration) previewWaveformBands = waveformBands;
     }).catch(error => console.warn('Preview band analysis failed:', error));
-  }).catch(err => {
-    console.error("Preview Waveform decode failed:", err);
   });
 }
 
@@ -14289,6 +14418,9 @@ function drawPrevVisualizer() {
       
       // Hide or show the preview overview canvas
       const overviewCanvas = document.getElementById('prev-overview-canvas');
+      const loading = previewVisMode === 'waveform' && previewWaveformLoading;
+      setWaveformLoading(canvas, loading);
+      setWaveformLoading(overviewCanvas, loading);
       if (overviewCanvas) {
         overviewCanvas.style.display = (previewVisMode === 'waveform') ? 'block' : 'none';
       }
@@ -14296,7 +14428,7 @@ function drawPrevVisualizer() {
       const trackColor = '#ff5500'; // Orange theme for preview inside app
     
     // Draw Preview Overview Waveform if available and visible
-    if (overviewCanvas && previewVisMode === 'waveform' && previewStaticWaveform?.length) {
+    if (overviewCanvas && previewVisMode === 'waveform' && !loading && previewStaticWaveform?.length) {
       const refAudio = previewStems.main.exists ? previewStems.main.audio
         : previewStems.vocals.exists ? previewStems.vocals.audio
           : previewStems.inst.audios[0]?.audio;
@@ -14359,6 +14491,7 @@ function drawPrevVisualizer() {
       }
     }
     
+    if (loading) return;
     const width = canvas.width;
     const height = canvas.height;
     
