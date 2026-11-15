@@ -14,6 +14,12 @@ constexpr char LibraryPrefix[] = "NM-LIBRARY:";
 constexpr char BrowserInputPrefix[] = "BROWSER:";
 constexpr size_t MaxSerialLine = sizeof(WaveformPrefix) - 1 + 4 * ((FrameWireSize + 2) / 3);
 constexpr float ViewSeconds = 8.0f;
+constexpr int LogoWidth = 216;
+constexpr int LogoHeight = 132;
+constexpr int LogoSpriteWidth = 262;
+constexpr int LogoSpriteHeight = 162;
+constexpr float IdleLogoStartScale = 1.20f;
+constexpr uint32_t LogoAnimationMs = 300;
 
 constexpr uint32_t Background = 0x101620;
 constexpr uint32_t Panel = 0x182231;
@@ -43,6 +49,7 @@ CompanionDisplay display;
 lgfx::LGFX_Sprite waveform(&display);
 lgfx::LGFX_Sprite headerRight(&display);
 lgfx::LGFX_Sprite overview(&display);
+lgfx::LGFX_Sprite connectionLogo(&display);
 QueueHandle_t snapshots;
 QueueHandle_t browserPages;
 Snapshot current{};
@@ -50,6 +57,8 @@ BrowserPage browser{};
 int deckWidth;
 int deckHeight;
 int chartHeight;
+bool idleLogoAnimating = false;
+uint32_t idleLogoStartedAt = 0;
 
 void serialTask(void*) {
   static char line[MaxSerialLine + 1];
@@ -121,7 +130,16 @@ void serialTask(void*) {
   }
 }
 
-void drawIdleLogo() {
+uint32_t blendWhiteOver(uint32_t background, float opacity) {
+  const auto blendChannel = [opacity](uint8_t base) {
+    return uint8_t(lroundf(base + (255 - base) * opacity));
+  };
+  return display.color888(blendChannel((background >> 16) & 255),
+                          blendChannel((background >> 8) & 255),
+                          blendChannel(background & 255));
+}
+
+void paintLogo(lgfx::LGFXBase& target, int x, int y, float scale, uint32_t color) {
   // Coordinate arrotondate dal logo.svg di NotoMixer (215 × 131).
   constexpr int triangles[][6] = {
     {114, 131, 68, 72, 91, 53}, {114, 131, 91, 53, 156, 131},
@@ -131,14 +149,48 @@ void drawIdleLogo() {
     {126, 72, 65, 0, 107, 0}, {126, 72, 107, 0, 149, 53},
     {130, 52, 172, 0, 213, 0}, {130, 52, 213, 0, 148, 75},
   };
-  const int x = (display.width() - 215) / 2;
-  const int y = (display.height() - 131) / 2;
-  display.startWrite();
-  display.fillScreen(Background);
+  x += lroundf(LogoWidth * (1.0f - scale) / 2.0f);
+  y += lroundf(LogoHeight * (1.0f - scale) / 2.0f);
   for (const auto& t : triangles) {
-    display.fillTriangle(x + t[0], y + t[1], x + t[2], y + t[3], x + t[4], y + t[5], TFT_WHITE);
+    target.fillTriangle(x + lroundf(t[0] * scale), y + lroundf(t[1] * scale),
+                        x + lroundf(t[2] * scale), y + lroundf(t[3] * scale),
+                        x + lroundf(t[4] * scale), y + lroundf(t[5] * scale), color);
   }
-  display.endWrite();
+}
+
+void drawLogoFrame(float scale, float repaintScale, float opacity) {
+  const int x = (display.width() - LogoSpriteWidth) / 2;
+  const int y = (display.height() - LogoSpriteHeight) / 2;
+  const int insetX = max(0, int((LogoSpriteWidth - LogoWidth * repaintScale) / 2.0f) - 1);
+  const int insetY = max(0, int((LogoSpriteHeight - LogoHeight * repaintScale) / 2.0f) - 1);
+  connectionLogo.fillScreen(Background);
+  if (scale * LogoWidth >= 1.0f) {
+    paintLogo(connectionLogo, (LogoSpriteWidth - LogoWidth) / 2, (LogoSpriteHeight - LogoHeight) / 2,
+              scale, blendWhiteOver(Background, opacity));
+  }
+  display.setClipRect(x + insetX, y + insetY, LogoSpriteWidth - 2 * insetX, LogoSpriteHeight - 2 * insetY);
+  connectionLogo.pushSprite(x, y);
+  display.clearClipRect();
+}
+
+void startIdleLogoAnimation() {
+  display.fillScreen(Background);
+  idleLogoAnimating = connectionLogo.getBuffer() != nullptr;
+  idleLogoStartedAt = millis();
+  if (!idleLogoAnimating) {
+    paintLogo(display, (display.width() - LogoWidth) / 2, (display.height() - LogoHeight) / 2,
+              1.0f, 0xFFFFFF);
+  }
+}
+
+void updateIdleLogoAnimation(uint32_t now) {
+  if (!idleLogoAnimating) return;
+  const uint32_t elapsed = now - idleLogoStartedAt;
+  const float progress = float(min(elapsed, LogoAnimationMs)) / LogoAnimationMs;
+  const float easeIn = progress * progress;
+  const float scale = 1.0f + (IdleLogoStartScale - 1.0f) * (1.0f - easeIn);
+  drawLogoFrame(scale, IdleLogoStartScale, easeIn);
+  if (elapsed >= LogoAnimationMs) idleLogoAnimating = false;
 }
 
 void label(lgfx::LGFXBase& target, const char* value, int x, int y, uint32_t color,
@@ -465,12 +517,7 @@ uint32_t transportIconColor(uint32_t elapsed, bool endSyncActive) {
   const float phase = float(elapsed % PlayFadePeriodMs) / PlayFadePeriodMs;
   const float minimumOpacity = endSyncActive ? 0.0f : 0.18f;
   const float opacity = minimumOpacity + (1.0f - minimumOpacity) * 0.5f * (1.0f - cosf(phase * fullTurn));
-  const auto blendWhite = [opacity](uint8_t base) {
-    return uint8_t(lroundf(base + (255 - base) * opacity));
-  };
-  return display.color888(blendWhite((Panel >> 16) & 255),
-                          blendWhite((Panel >> 8) & 255),
-                          blendWhite(Panel & 255));
+  return blendWhiteOver(Panel, opacity);
 }
 
 void drawTransportIcon(const Deck& deck, uint32_t iconColor, bool showEndSync) {
@@ -614,7 +661,10 @@ void setup() {
     Serial0.begin(CompanionBaud);
   }
   display.beginDisplay();
-  drawIdleLogo();
+  connectionLogo.setColorDepth(16);
+  connectionLogo.setPsram(psramFound());
+  connectionLogo.createSprite(LogoSpriteWidth, LogoSpriteHeight);
+  startIdleLogoAnimation();
 
   deckWidth = display.width();
   deckHeight = display.height() / 2;
@@ -644,20 +694,41 @@ void setup() {
 void loop() {
   static bool wasLive = false;
   static bool wasBrowsing = false;
+  static bool connecting = false;
+  static uint32_t connectionStartedAt = 0;
+  static float previousLogoScale = 1.0f;
   const bool newSnapshot = snapshots && xQueueReceive(snapshots, &current, 0) == pdTRUE;
   const bool newPage = browserPages && xQueueReceive(browserPages, &browser, 0) == pdTRUE;
   const uint32_t now = millis();
   if (snapshots) {
-    const bool live = current.receivedAt && now - current.receivedAt < StaleMs;
-    const bool browsing = live && browser.open;
-    if (browsing) {
+    const bool receiving = current.receivedAt && now - current.receivedAt < StaleMs;
+    if (!receiving && wasLive) {
+      connecting = false;
+      browser.open = false;
+      startIdleLogoAnimation();
+    }
+    updateIdleLogoAnimation(millis());
+    const bool live = receiving && !idleLogoAnimating;
+    if (live && !wasLive && connectionLogo.getBuffer()) {
+      connecting = true;
+      connectionStartedAt = now;
+      previousLogoScale = 1.0f;
+    }
+    const uint32_t connectionElapsed = now - connectionStartedAt;
+    const bool animationFinished = connecting && connectionElapsed >= LogoAnimationMs;
+    if (animationFinished || !live) connecting = false;
+
+    const bool browsing = live && !connecting && browser.open;
+    if (connecting) {
+      const float remaining = 1.0f - float(connectionElapsed) / LogoAnimationMs;
+      const float scale = remaining * remaining;
+      if (scale != previousLogoScale) drawLogoFrame(scale, previousLogoScale, remaining);
+      previousLogoScale = scale;
+    } else if (browsing) {
       if (!wasBrowsing || newPage) drawBrowser(browser, !wasBrowsing);
     } else if (live) {
-      renderLive(now, newSnapshot, !wasLive || wasBrowsing);
-    } else if (wasLive) {
-      drawIdleLogo();
+      renderLive(now, newSnapshot, !wasLive || wasBrowsing || animationFinished);
     }
-    if (!live && wasLive) browser.open = false;
     wasLive = live;
     wasBrowsing = browsing;
   }
