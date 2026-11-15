@@ -17,12 +17,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: xcode-27
             arch: arm64
+            os-major: '27'
           - runner: macos-15-intel
             arch: x64
+            os-major: '15'
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Verify macOS version
+        env:
+          EXPECTED_OS: ${{ matrix.os-major }}
+        run: |
+          version=$(sw_vers -productVersion)
+          echo "macOS $version ($(uname -m))"
+          test "${version%%.*}" = "$EXPECTED_OS"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -38,6 +47,31 @@ jobs:
           "$app/Contents/Resources/ffmpeg/bin/ffmpeg" -version
           ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/NotoMixer" -e \
             'const asar = process.resourcesPath + "/app.asar"; require(asar + "/audio-compat.js").getFfmpegPath(); require.resolve(asar + "/node_modules/ws");'
+      - name: Verify mixer startup
+        if: matrix.arch == 'arm64'
+        run: |
+          binary=/Applications/NotoMixer.app/Contents/MacOS/NotoMixer
+          log="$RUNNER_TEMP/notomixer-startup.log"
+          "$binary" --remote-debugging-port=9222 >"$log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            if curl -fsS --max-time 2 http://127.0.0.1:9222/json/list 2>/dev/null | node -e '
+              const assert = require("node:assert/strict");
+              const pages = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+              assert(pages.some(page => page.url.endsWith("/app.asar/index.html")));
+              assert(!pages.some(page => page.url.includes("/app.asar/splash.html")));
+            ' 2>/dev/null; then
+              test -f "$HOME/Library/Application Support/NotoMixer/config.notomixer"
+              test -f "$HOME/Library/Application Support/NotoMixer/settings/userSettings.notomixer"
+              echo "Mixer and user settings initialized."
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$log"
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: NotoMixer-macos-${{ matrix.arch }}
