@@ -1,12 +1,14 @@
 {
   "name": "notomixer",
+  "productName": "NotoMixer",
   "version": "1.2.0",
   "description": "DJ app",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build:installer": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build-installer.ps1",
-    "prepare:ffmpeg": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./prepare-ffmpeg.ps1",
+    "build:installer:mac": "node ./installer/build-macos.mjs",
+    "prepare:ffmpeg": "node ./prepare-ffmpeg.js",
     "postinstall": "npm run prepare:ffmpeg"
   },
   "dependencies": {

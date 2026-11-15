@@ -18,12 +18,16 @@ const {
 const { version: packageVersion } = require('./package.json');
 const { analyzeWaveformBands, drawBands, drawBandOverview } = require('./waveform');
 
+const macUserData = process.platform === 'darwin' && !process.defaultApp
+  && !process.env.NOTOMIXER_INSTALL_ROOT
+  ? ipcRenderer.sendSync('notomixer:mac-user-data')
+  : null;
 const notoMixerRoot = process.env.NOTOMIXER_INSTALL_ROOT
   ? path.resolve(process.env.NOTOMIXER_INSTALL_ROOT)
   : process.defaultApp
     ? __dirname
-    : path.resolve(process.resourcesPath, '..', '..');
-const notoMixerAssetsRoot = path.join(notoMixerRoot, 'assets');
+    : macUserData || path.resolve(process.resourcesPath, '..', '..');
+const notoMixerAssetsRoot = path.join(macUserData ? process.resourcesPath : notoMixerRoot, 'assets');
 const getNotoMixerAssetUrl = (...segments) =>
   pathToFileURL(path.join(notoMixerAssetsRoot, ...segments)).href;
 
@@ -236,7 +240,7 @@ function renderAppUpdateInfo() {
       || `NotoMixer v${availableAppUpdate.version} is available.`;
     detail.textContent = availableAppUpdate.asset
       ? `${availableAppUpdate.asset.name} · ${formatUpdateBytes(availableAppUpdate.asset.size)}`
-      : 'This release does not include a Windows installer.';
+      : 'This release does not include an installer for this computer.';
     actionButton.hidden = false;
     actionButton.disabled = !availableAppUpdate.downloadAvailable;
     actionButton.textContent = appUpdateDownloadError
@@ -270,7 +274,7 @@ function renderAppUpdateModal() {
     detail.textContent = appUpdateDownloadError
       || (availableAppUpdate.downloadAvailable
         ? `${availableAppUpdate.prerelease ? 'This is a prerelease. ' : ''}Download the installer directly without leaving the app.`
-        : 'The release exists, but it does not include a Windows installer.');
+        : 'The release does not include an installer for this computer.');
   }
   if (laterButton) {
     laterButton.disabled = appUpdatePhase === 'downloading';

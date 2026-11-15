@@ -270,8 +270,8 @@ $packagerArguments = @(
     '--prune=true',
     "--app-version=$appVersion",
     "--icon=$iconOutput",
-    '--ignore=^/(dist|installer|assets|settings|esp32-companion|\.build-tools|\.git|\.cover_cache)($|/)',
-    '--ignore=^/(config\.notomixer|logo\.svg|logo\.png|desktopApp\.zip|notoMixer\.ino|build-installer\.ps1|prepare-ffmpeg\.ps1|INSTALLER\.md|avvia\.bat|\.gitignore)$'
+    '--ignore=^/(dist|installer|assets|settings|esp32-companion|\.build-tools|\.git|\.github|\.cover_cache|\.runtime/ffmpeg-macos)($|/)',
+    '--ignore=^/(config\.notomixer|logo\.svg|logo\.png|desktopApp\.zip|notoMixer\.ino|build-installer\.ps1|prepare-ffmpeg\.(ps1|js)|INSTALLER\.md|avvia\.bat|\.gitignore)$'
 )
 
 & node.exe $packager @packagerArguments

@@ -24,8 +24,13 @@ function isM4aFile(filePath) {
 }
 
 function getFfmpegPath() {
+  const macRuntime = process.resourcesPath && /(?:^|[\\/])app\.asar$/.test(__dirname)
+    ? path.join(process.resourcesPath, 'ffmpeg')
+    : path.join(__dirname, '.runtime', 'ffmpeg-macos', process.arch);
   let ffmpegPath = process.env.NOTOMIXER_FFMPEG_PATH
-    || path.join(__dirname, '.runtime', 'ffmpeg', 'bin', 'ffmpeg.exe');
+    || (process.platform === 'darwin'
+      ? path.join(macRuntime, 'bin', 'ffmpeg')
+      : path.join(__dirname, '.runtime', 'ffmpeg', 'bin', 'ffmpeg.exe'));
   // Executables cannot run from inside app.asar. The installer unpacks the
   // pinned runtime, while __dirname still reports its logical ASAR path.
   ffmpegPath = ffmpegPath.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
@@ -36,7 +41,8 @@ function getFfmpegPath() {
 }
 
 function getFfprobePath() {
-  const ffprobePath = path.join(path.dirname(getFfmpegPath()), 'ffprobe.exe');
+  const executable = process.platform === 'darwin' ? 'ffprobe' : 'ffprobe.exe';
+  const ffprobePath = path.join(path.dirname(getFfmpegPath()), executable);
   if (!fs.existsSync(ffprobePath)) {
     throw new Error(`The bundled FFprobe executable was not found at ${ffprobePath}.`);
   }

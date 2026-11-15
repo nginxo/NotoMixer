@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -24,12 +24,34 @@ let targetPortName = '';
 let splash;
 const TABLET_CONTROLLER_PORT = 37840;
 const TABLET_CONTROLLER_SESSION_ID = randomUUID();
-const NOTOMIXER_ROOT = process.env.NOTOMIXER_INSTALL_ROOT
-  ? path.resolve(process.env.NOTOMIXER_INSTALL_ROOT)
+const installRootOverride = process.env.NOTOMIXER_INSTALL_ROOT;
+const bundledMacResources = process.platform === 'darwin' && app.isPackaged && !installRootOverride
+  ? process.resourcesPath
+  : '';
+const NOTOMIXER_ROOT = installRootOverride
+  ? path.resolve(installRootOverride)
   : app.isPackaged
-    ? path.resolve(path.dirname(process.execPath), '..')
+    ? bundledMacResources
+      ? app.getPath('userData')
+      : path.resolve(path.dirname(process.execPath), '..')
     : __dirname;
-const PUBLIC_ASSETS_ROOT = path.join(NOTOMIXER_ROOT, 'assets');
+const PUBLIC_ASSETS_ROOT = path.join(bundledMacResources || NOTOMIXER_ROOT, 'assets');
+
+function prepareMacUserFiles() {
+  for (const relativePath of ['config.notomixer', path.join('settings', 'userSettings.notomixer')]) {
+    const destination = path.join(NOTOMIXER_ROOT, relativePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    try {
+      fs.copyFileSync(path.join(bundledMacResources, 'defaults', relativePath), destination, fs.constants.COPYFILE_EXCL);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+  }
+}
+
+ipcMain.on('notomixer:mac-user-data', event => {
+  event.returnValue = bundledMacResources ? NOTOMIXER_ROOT : null;
+});
 let tabletControllerServer = null;
 let tabletControllerWebSocketServer = null;
 let tabletControllerPort = 0;
@@ -772,7 +794,7 @@ ipcMain.handle('app-update:download', async event => {
   if (!availableAppUpdate?.asset) {
     return {
       ok: false,
-      error: 'No Windows installer is attached to this release.'
+      error: 'No compatible installer is attached to this release.'
     };
   }
   if (updateDownloadPromise) return updateDownloadPromise;
@@ -805,13 +827,20 @@ ipcMain.handle('app-update:download', async event => {
   return updateDownloadPromise;
 });
 
-ipcMain.handle('app-update:install', () => {
+ipcMain.handle('app-update:install', async () => {
   if (
     !downloadedUpdatePath
-    || path.extname(downloadedUpdatePath).toLowerCase() !== '.exe'
+    || path.extname(downloadedUpdatePath).toLowerCase() !== appUpdater.installerExtension
     || !fs.existsSync(downloadedUpdatePath)
   ) {
     return { ok: false, error: 'The downloaded installer is no longer available.' };
+  }
+
+  if (process.platform === 'darwin') {
+    const error = await shell.openPath(downloadedUpdatePath);
+    if (error) return { ok: false, error };
+    setTimeout(() => app.quit(), 250);
+    return { ok: true };
   }
 
   return new Promise(resolve => {
@@ -873,6 +902,7 @@ ipcMain.on('select-working-directory', (event) => {
 
 
 app.whenReady().then(() => {
+  if (bundledMacResources) prepareMacUserFiles();
   createWindow();
   startTabletControllerServer().catch(error => {
     console.error('Tablet controller server failed:', error);

@@ -1,0 +1,45 @@
+name: Installer macOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'build/macos-installer'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:installer:mac -- ${{ matrix.arch }}
+      - name: Verify installation
+        run: |
+          sudo installer -pkg dist/installer-mac/NotoMixer*-macos-${{ matrix.arch }}.pkg -target /
+          app=/Applications/NotoMixer.app
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/Resources/ffmpeg/bin/ffmpeg" -version
+          ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/NotoMixer" -e \
+            'const asar = process.resourcesPath + "/app.asar"; require(asar + "/audio-compat.js").getFfmpegPath(); require.resolve(asar + "/node_modules/ws");'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NotoMixer-macos-${{ matrix.arch }}
+          path: dist/installer-mac/NotoMixer*-macos-${{ matrix.arch }}.pkg
+          if-no-files-found: error

@@ -11,6 +11,7 @@ const RELEASES_URL =
   `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPOSITORY}/releases?per_page=20`;
 const MAX_JSON_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
+const installerExtension = process.platform === 'darwin' ? '.pkg' : '.exe';
 
 function normalizeVersion(value) {
   const match = String(value || '').match(/\d+(?:\.\d+){0,3}/);
@@ -93,13 +94,22 @@ function isTrustedReleaseDownloadUrl(value, initialRequest = false) {
   }
 }
 
-function selectInstallerAsset(assets) {
+function isCompatibleInstaller(name, platform, arch) {
+  if (platform === 'darwin') {
+    return ['arm64', 'x64'].includes(arch)
+      && /^notomixer\d+(?:\.\d+){2}-macos-(?:arm64|x64)\.pkg$/i.test(name)
+      && name.toLowerCase().endsWith(`-macos-${arch}.pkg`);
+  }
+  return platform === 'win32' && name.toLowerCase().endsWith('.exe');
+}
+
+function selectInstallerAsset(assets, platform = process.platform, arch = process.arch) {
   const candidates = (Array.isArray(assets) ? assets : [])
     .filter(asset => (
       asset
       && asset.state === 'uploaded'
       && typeof asset.name === 'string'
-      && asset.name.toLowerCase().endsWith('.exe')
+      && isCompatibleInstaller(asset.name, platform, arch)
       && Number(asset.size) > 0
       && isTrustedReleaseDownloadUrl(asset.browser_download_url, true)
     ))
@@ -215,7 +225,7 @@ function parseSha256Digest(value) {
 async function downloadUpdate(release, tempRoot, onProgress = () => {}) {
   const asset = release?.asset;
   if (!asset || !asset.downloadUrl || !asset.name) {
-    throw new Error('This release does not include a Windows installer');
+    throw new Error('This release does not include a compatible installer');
   }
   if (!isTrustedReleaseDownloadUrl(asset.downloadUrl, true)) {
     throw new Error('The update installer URL is not trusted');
@@ -223,8 +233,8 @@ async function downloadUpdate(release, tempRoot, onProgress = () => {}) {
 
   const updateDirectory = path.resolve(tempRoot, 'NotoMixer Updates');
   const installerName = path.basename(asset.name);
-  if (!installerName.toLowerCase().endsWith('.exe')) {
-    throw new Error('The update asset is not a Windows installer');
+  if (!isCompatibleInstaller(installerName, process.platform, process.arch)) {
+    throw new Error('The update asset is not a compatible installer');
   }
   const installerPath = path.join(updateDirectory, installerName);
   const partialPath = `${installerPath}.download`;
@@ -285,6 +295,7 @@ module.exports = {
   checkForUpdate,
   compareVersions,
   downloadUpdate,
+  installerExtension,
   isTrustedReleaseDownloadUrl,
   normalizeVersion,
   selectInstallerAsset
