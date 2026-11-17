@@ -2566,6 +2566,7 @@ const esp32LayeredWaveformCache = new WeakMap();
 const esp32DetailedWaveformCache = new WeakMap();
 const Esp32BrowserRows = 8;
 const Esp32BrowserTelemetryIntervalMs = 350;
+const Esp32MinimumLoadingMs = 200;
 const Esp32BrowserKeys = {
   ArrowUp: 'UP', ArrowDown: 'DOWN', Digit1: 'LOAD1', Digit2: 'LOAD2', Escape: 'CLOSE'
 };
@@ -2720,12 +2721,17 @@ async function publishEsp32CompanionFrame() {
   const now = performance.now();
   if (!connection || !writer || serialClosing || connection.writing || now < connection.nextWrite) return;
 
-  const loadingDecks = [1, 2].map(trackNum => tracks[trackNum]._waveformLoading === true);
+  const loadTokens = [1, 2].map(trackNum => tracks[trackNum]._directoryLoadToken ?? 0);
+  // A new load can finish while a waveform for the other deck is still on the wire.
+  const pendingLoads = loadTokens.map((token, index) => token !== connection.announcedLoadTokens[index]);
+  const announceLoading = pendingLoads.some(Boolean);
+  const loadingDecks = pendingLoads.map((pending, index) => pending
+    || tracks[index + 1]._waveformLoading === true || now < connection.loadingVisibleUntil[index]);
   const loadingChanged = loadingDecks.some((loading, index) => loading
     !== (connection.loadingDecks?.[index] ?? false));
   // The ESP32 checks the waveform stream even while the browser covers the decks.
   const telemetryDue = now - (connection.lastWaveformSentAt ?? -Infinity) >= Esp32BrowserTelemetryIntervalMs;
-  if (connection.browserDirty && !telemetryDue && !loadingChanged) {
+  if (connection.browserDirty && !telemetryDue && !loadingChanged && !announceLoading) {
     connection.browserDirty = false;
     connection.writing = true;
     try {
@@ -2753,18 +2759,21 @@ async function publishEsp32CompanionFrame() {
     ) : null
   ));
   const fullRequest = connection.fullRequest;
-  const full = connection.sentFullRequest !== fullRequest
-    || waveforms.some((peaks, index) => peaks !== connection.waveforms[index]);
   const layered = connection.version >= 3;
   const detailed = connection.version >= 5;
   const stateSize = connection.version >= 2 ? 148 : 100;
-  const recordSize = full && !layered ? stateSize + 2000 : stateSize;
   const resync = connection.sentFullRequest !== fullRequest;
-  const replaced = waveforms.map((peaks, index) => layered
+  const transmitted = waveforms.map((peaks, index) => (
+    layered && announceLoading && audioElements[index] ? (resync ? null : connection.waveforms[index]) : peaks
+  ));
+  const transmittedColors = transmitted.map((peaks, index) => Boolean(peaks && (
+    peaks === waveforms[index] ? tracks[index + 1].waveformBands?.length : connection.colored[index]
+  )));
+  const replaced = transmitted.map((peaks, index) => layered
     && (resync || peaks !== connection.waveforms[index]));
-  const transmitted = [...waveforms];
-  const transmittedColors = waveforms.map((peaks, index) => Boolean(peaks && tracks[index + 1].waveformBands?.length));
-  if (detailed && replaced[0] && replaced[1] && waveforms[0] && waveforms[1]) {
+  const full = resync || transmitted.some((peaks, index) => peaks !== connection.waveforms[index]);
+  const recordSize = full && !layered ? stateSize + 2000 : stateSize;
+  if (detailed && replaced[0] && replaced[1] && transmitted[0] && transmitted[1]) {
     // Keep each transfer short enough for the other deck to receive fresh position data.
     transmitted[1] = resync ? null : connection.waveforms[1];
     transmittedColors[1] = !resync && connection.colored[1];
@@ -2842,6 +2851,12 @@ async function publishEsp32CompanionFrame() {
     connection.lastWaveformSentAt = now;
     connection.loadingDecks = loadingDecks;
     connection.nextWrite = now + Math.ceil(line.length / 11.52);
+    if (announceLoading) {
+      connection.announcedLoadTokens = loadTokens;
+      pendingLoads.forEach((pending, index) => {
+        if (pending) connection.loadingVisibleUntil[index] = connection.nextWrite + Esp32MinimumLoadingMs;
+      });
+    }
     if (full) {
       connection.sentFullRequest = fullRequest;
       connection.waveforms = transmitted;
@@ -11885,6 +11900,11 @@ function parseIncomingMessage(msg) {
           version,
           waveforms: [null, null],
           colored: [false, false],
+          announcedLoadTokens: [1, 2].map(trackNum => {
+            const track = tracks[trackNum];
+            return track._waveformLoading ? null : (track._directoryLoadToken ?? 0);
+          }),
+          loadingVisibleUntil: [0, 0],
           fullRequest: 1,
           sentFullRequest: 0,
           nextWrite: 0,
