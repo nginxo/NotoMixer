@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "NotoMixer")(type "KiCad")(uri "${KIPRJMOD}/NotoMixer.kicad_sym")(options "")(descr "NotoMixer project symbols"))
+)

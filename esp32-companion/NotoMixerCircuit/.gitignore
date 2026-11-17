@@ -1,0 +1,3 @@
+# KiCad temporary and backup files
+*.lck
+.history/
