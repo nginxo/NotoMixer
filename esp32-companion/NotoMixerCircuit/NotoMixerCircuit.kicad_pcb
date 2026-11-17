@@ -828,7 +828,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "c13bff19-b243-4d1d-b7e3-e22fcc274474")
+			(uuid "1ec170a2-ee8b-420f-a67e-be79fcba522b")
 			(effects
 				(font
 					(size 1 1)
@@ -840,7 +840,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "65317060-4f12-4782-88b5-5f79f8383997")
+			(uuid "37a60c3c-b38a-4ee5-88a8-1d39b3821213")
 			(effects
 				(font
 					(size 1 1)
@@ -853,7 +853,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "513a7a73-b237-4abd-95ec-7fce3d285a70")
+			(uuid "a3965093-cbf6-408f-a83f-f1a2f0031925")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -866,7 +866,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "8ec74c05-0b34-4eb3-b74a-be5a52fa9c79")
+			(uuid "77a73b64-a227-484e-b15c-6d7f8c3b0f1a")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -912,7 +912,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K08")
@@ -1063,7 +1063,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "2d7860f3-1efb-4b66-90a0-3a5b80030c92")
+			(uuid "8e145873-51a5-4b54-8dcc-df95853248fe")
 			(effects
 				(font
 					(size 1 1)
@@ -1075,7 +1075,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "bf454b57-579c-45b5-a729-537faddbed72")
+			(uuid "44b901f6-060b-4d56-9cad-69af3bc5540c")
 			(effects
 				(font
 					(size 1 1)
@@ -1088,7 +1088,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "49679482-536a-411d-9c02-90f265cd62ea")
+			(uuid "397c4bb5-4a7a-4aaa-a3d5-3d02557d2b57")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1101,7 +1101,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "4b40ed4a-f56d-4e11-838f-5c3eaf60e2f8")
+			(uuid "3dd48fd9-58ea-4b7d-b844-668ac626f358")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1147,7 +1147,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K02")
@@ -3135,7 +3135,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "eb45124a-1a39-4068-b07c-16682b3dc66c")
+			(uuid "e571879e-c6b3-4ce3-9b7c-4458cd1c2167")
 			(effects
 				(font
 					(size 1 1)
@@ -3147,7 +3147,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "23d7f0ed-7c5d-4a6c-b309-497e5f86d299")
+			(uuid "228a52b5-a292-4d6d-890c-d38b884dd35d")
 			(effects
 				(font
 					(size 1 1)
@@ -3160,7 +3160,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "aa01d202-c987-45fc-a0bd-98a91680663f")
+			(uuid "f8038928-f19b-4cc6-b4b7-8c32e97285a0")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3173,7 +3173,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "ccf448c2-193a-4eec-b55c-b4afde575954")
+			(uuid "97fe673b-88d4-488b-87a7-a777d592e55b")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3219,7 +3219,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K05")
@@ -3237,7 +3237,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "f2692749-e603-4e01-a23d-a5aaf359cdf9")
+			(uuid "df21cd5f-1d3e-409f-ba8e-bca2af9df566")
 			(effects
 				(font
 					(size 1 1)
@@ -3249,7 +3249,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "5fc506e7-f849-4b5f-929c-b6f7ff6cea08")
+			(uuid "9bc2b524-cf14-4fe8-bae1-12a287ecc076")
 			(effects
 				(font
 					(size 1 1)
@@ -3262,7 +3262,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "772a67d9-1b7a-4cd6-a326-7a1dd02df32d")
+			(uuid "8fd513ac-a594-4099-a4e7-86cec84cadc5")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3275,7 +3275,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "eafceb39-53d0-4725-a92f-1b6f09e77135")
+			(uuid "9128286a-55b1-4ed1-8f50-2c89a2d3f96c")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3321,7 +3321,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K03")
@@ -3472,7 +3472,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "429d1122-3361-4d22-ab0c-bcafa1caacb4")
+			(uuid "1b939d8b-dcc1-4623-b8ec-1404e9a2585a")
 			(effects
 				(font
 					(size 1 1)
@@ -3484,7 +3484,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "e736798b-e42c-4d18-a650-e5ed9b9afded")
+			(uuid "c8e69b13-17c2-4a85-a449-473c2506d028")
 			(effects
 				(font
 					(size 1 1)
@@ -3497,7 +3497,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "4ecccf6c-1513-4ded-9e00-ef355735e497")
+			(uuid "768ffa38-292d-4bb1-a6f2-db26d47a0913")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3510,7 +3510,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "27157899-4c6d-4127-b5c7-52c81678252e")
+			(uuid "a414936f-d4c8-4488-b4e1-b0014e5131c1")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3556,7 +3556,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K10")
@@ -5400,7 +5400,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "50543de1-b326-445d-9e3d-120bcab79e22")
+			(uuid "cc558ff6-88f0-4767-b842-ac9b6eb01ee6")
 			(effects
 				(font
 					(size 1 1)
@@ -5412,7 +5412,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "3e8ed69b-9a2e-4a85-b05c-c12d2a533a81")
+			(uuid "64692dd0-212a-465f-b169-de2f32fca2c2")
 			(effects
 				(font
 					(size 1 1)
@@ -5425,7 +5425,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "ef92f0b3-20bb-4742-8cea-ebf4c9560bf2")
+			(uuid "8ddec6b3-b1cc-45dc-ac9d-fdbaf38eb5f2")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5438,7 +5438,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "eb172eee-366b-4272-a15c-53549d1056ff")
+			(uuid "fe0ca257-8fac-436f-af23-d284fbfee113")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5484,7 +5484,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K01")
@@ -5502,7 +5502,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "3330fc32-c3f9-4fac-b146-c6a7f3b1f6c9")
+			(uuid "c1f8e797-9bfc-4546-b0f0-1e03a20c0795")
 			(effects
 				(font
 					(size 1 1)
@@ -5514,7 +5514,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "92e91e40-06dc-4c68-b3a7-116e1722f95b")
+			(uuid "c5cff3eb-cff5-48e9-a653-d1a220333d20")
 			(effects
 				(font
 					(size 1 1)
@@ -5527,7 +5527,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "16b5e5a0-b3dc-42be-8e65-e87150ddca1b")
+			(uuid "86fa5b5b-44b2-4975-807c-5a15243b9ca4")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5540,7 +5540,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "4eed1da9-c08c-47f9-87ca-75a6cf61a9da")
+			(uuid "32d9c1c6-4f5c-4041-b29a-31e14168f1c0")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5586,7 +5586,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K07")
@@ -6668,7 +6668,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "ee27de25-680c-4e63-b18a-1d2489a5c537")
+			(uuid "18bffd68-b485-44f7-ac36-32c14c2d8cc1")
 			(effects
 				(font
 					(size 1 1)
@@ -6680,7 +6680,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "52a7adea-f1a1-4b48-9de4-50f8df839f5b")
+			(uuid "90a1441a-3807-45fe-9beb-edc7cbe4d5bb")
 			(effects
 				(font
 					(size 1 1)
@@ -6693,7 +6693,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "0099e7fb-45b5-465b-8757-1cbbf5b9f9d1")
+			(uuid "393fe7e7-b8cc-4164-960c-083dbba7f834")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6706,7 +6706,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "a5e9590e-a34c-42c1-bb8b-24280d1f2480")
+			(uuid "e0951f37-95ac-4294-b6e5-004bcfea7b98")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6752,7 +6752,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K09")
@@ -9159,7 +9159,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "a1787266-d389-48d3-a0fb-ef96d1727372")
+			(uuid "3ebbd79e-4bbf-4491-b988-49e7383864d3")
 			(effects
 				(font
 					(size 1 1)
@@ -9171,7 +9171,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "4cf10f81-8f4e-495e-ae6f-b02d51f2d4a8")
+			(uuid "c1303ac3-bf79-41c0-bd10-c1eefb310195")
 			(effects
 				(font
 					(size 1 1)
@@ -9184,7 +9184,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "9a52dfa8-72ba-438a-a98f-34ab80d02fab")
+			(uuid "434c8d9d-9efd-4ef5-bc21-0524e725d4e1")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9197,7 +9197,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "b1a01a77-bfd0-4d18-926a-2206cd2b8aa5")
+			(uuid "60ce4dad-98c5-432a-9952-1cff0ba5fc48")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9243,7 +9243,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K06")
@@ -9960,7 +9960,7 @@
 			(at 0 -1.998 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "264a1e35-a589-4afd-893e-cd32bb316684")
+			(uuid "0d16d926-1c07-46af-8d85-44d4a144960d")
 			(effects
 				(font
 					(size 1 1)
@@ -9972,7 +9972,7 @@
 			(at 0 2.05 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "1aa427ee-6a34-478a-a1c5-73eb34a22f11")
+			(uuid "abf6043b-4788-4f22-b7a0-88f4fc8cf3e8")
 			(effects
 				(font
 					(size 1 1)
@@ -9985,7 +9985,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "72bd0d6d-7d58-4002-91ab-77fd05675848")
+			(uuid "9d39e218-960e-4b47-86b6-a35f2bea768b")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -9998,7 +9998,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "4ccd2c49-108c-4af8-917b-9bb742234ab4")
+			(uuid "975abf5f-db9f-48a4-a7b8-b36676a44d45")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -10044,7 +10044,7 @@
 		(pad "1" thru_hole circle
 			(at 0 0)
 			(size 1.5 1.5)
-			(drill 1.15)
+			(drill 1)
 			(layers "*.Cu" "*.Mask")
 			(remove_unused_layers no)
 			(net "/LED_K04")
